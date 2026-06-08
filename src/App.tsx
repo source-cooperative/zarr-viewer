@@ -21,6 +21,7 @@ import { Map as MaplibreMap, useControl } from "react-map-gl/maplibre";
 import { isDarkChrome, resolveBasemap } from "./basemaps";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { EmptyState } from "./components/EmptyState";
+import { formatNumber } from "./components/RangeSlider";
 import { FullscreenButton } from "./components/FullscreenButton";
 import { StructurePanel } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
@@ -85,6 +86,22 @@ export default function App() {
   const [viewZoom, setViewZoom] = useState<number>(() => state.view?.[2] ?? 2);
   const [mapSettled, setMapSettled] = useState<boolean>(() => !!state.view);
 
+  // Hover-value tooltip. The cursor read is rAF-throttled (one re-render per
+  // frame); `hover` is local state and is NOT a layer dep, so it never rebuilds
+  // the layer.
+  const [hover, setHover] = useState<{
+    x: number;
+    y: number;
+    lines: string[];
+  } | null>(null);
+  const hoverRaf = useRef<number | null>(null);
+  const hoverPt = useRef<{
+    lng: number;
+    lat: number;
+    px: number;
+    py: number;
+  } | null>(null);
+
   useEffect(() => {
     setFirstSymbolId(undefined);
   }, [state.basemap]);
@@ -111,6 +128,62 @@ export default function App() {
     },
     [profile, profileState, updateParams],
   );
+
+  const handleHoverMove = useCallback(
+    (e: { lngLat: { lng: number; lat: number }; point: { x: number; y: number } }) => {
+      if (!profile?.sampleValue || !profileCtx || !profileState) return;
+      hoverPt.current = {
+        lng: e.lngLat.lng,
+        lat: e.lngLat.lat,
+        px: e.point.x,
+        py: e.point.y,
+      };
+      if (hoverRaf.current != null) return;
+      hoverRaf.current = requestAnimationFrame(() => {
+        hoverRaf.current = null;
+        const pt = hoverPt.current;
+        if (!pt || !profile?.sampleValue || !profileCtx || !profileState) {
+          setHover(null);
+          return;
+        }
+        const res = profile.sampleValue(profileCtx, profileState, pt.lng, pt.lat);
+        if (!res) {
+          setHover(null);
+          return;
+        }
+        const valueText =
+          res.value === null
+            ? "no data"
+            : `${formatNumber(res.value)}${res.units ? ` ${res.units}` : ""}`;
+        setHover({
+          x: pt.px,
+          y: pt.py,
+          lines: [
+            res.label,
+            valueText,
+            `${pt.lat.toFixed(3)}, ${pt.lng.toFixed(3)}`,
+          ],
+        });
+      });
+    },
+    [profile, profileCtx, profileState],
+  );
+
+  const handleHoverOut = useCallback(() => {
+    if (hoverRaf.current != null) {
+      cancelAnimationFrame(hoverRaf.current);
+      hoverRaf.current = null;
+    }
+    hoverPt.current = null;
+    setHover(null);
+  }, []);
+
+  // Cancel any pending rAF on unmount.
+  useEffect(() => {
+    return () => {
+      if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current);
+    };
+  }, []);
 
   // Open store + prepare profile context whenever (url, profile) changes.
   useEffect(() => {
@@ -422,10 +495,16 @@ export default function App() {
           const z = e.target.getZoom();
           update({ view: [c.lng, c.lat, z] });
         }}
+        onMouseMove={handleHoverMove}
+        onMouseOut={handleHoverOut}
       >
         <DeckGLOverlay
           layers={layer ? [layer] : []}
           interleaved
+          // Deck writes `cursor` inline on the shared canvas container on every
+          // pointer move (default grab/grabbing), which overrides any CSS — so
+          // the crosshair must be set here. Grabbing still shows while panning.
+          getCursor={({ isDragging }) => (isDragging ? "grabbing" : "crosshair")}
           onDeviceInitialized={setDevice}
         />
       </MaplibreMap>
@@ -495,6 +574,42 @@ export default function App() {
           )
         );
       })()}
+
+      {hover && (
+        <div
+          style={{
+            position: "absolute",
+            left: hover.x + 14,
+            top: hover.y + 14,
+            zIndex: 16,
+            pointerEvents: "none",
+            maxWidth: 280,
+          }}
+        >
+          <div
+            className="panel mono"
+            style={{
+              padding: "4px 8px",
+              fontSize: 11,
+              lineHeight: 1.4,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {hover.lines.map((line, i) => (
+              <div
+                key={i}
+                style={
+                  i === hover.lines.length - 1
+                    ? { color: "var(--text-muted)" }
+                    : undefined
+                }
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Toast message={error} onDismiss={() => setError(null)} />
 

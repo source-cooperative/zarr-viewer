@@ -12,6 +12,7 @@ import type { GetTileDataOptions } from "@developmentseed/deck.gl-zarr";
 import type { Texture } from "@luma.gl/core";
 import * as zarr from "zarrita";
 import { decodedChunkCache } from "./chunk-cache";
+import { registerSampleTile } from "./sample-source";
 import { Gamma, LogStretch, SqrtStretch } from "./shader-modules";
 import {
   percentileFromHistogram,
@@ -135,6 +136,9 @@ export function makeTextureArrayTileLoader(opts: {
   /** Cache identity for the decoded chunk (variable + pinned dims). Omitted →
    * no CPU caching (re-decode each call). */
   chunkKey?: string;
+  /** When set, register each decoded tile under this key so the hover tooltip
+   * can read values from it (see render/sample-source). */
+  sampleKey?: string;
 }) {
   const scale = opts.scaleFactor ?? 1;
   const offset = opts.addOffset ?? 0;
@@ -181,6 +185,32 @@ export function makeTextureArrayTileLoader(opts: {
         byteLength,
       };
       if (cacheKey) decodedChunkCache.set(cacheKey, full);
+    }
+
+    if (opts.sampleKey) {
+      // Register on every call (even a cache hit): the sample bucket may have
+      // been cleared by a selection change while `full` stayed cached. `full.data`
+      // is raw [depth,H,W] and UNrolled, so `valueAt` applies CF + the roll
+      // (mirrors buildWindowFloat32) to read in the displayed -180..180 frame.
+      const nd = sliceSpec.length;
+      const rowStart = (sliceSpec[nd - 2] as zarr.Slice)?.start ?? 0;
+      const colStart = (sliceSpec[nd - 1] as zarr.Slice)?.start ?? 0;
+      const raw = full.data;
+      const depth = full.depth;
+      const frameLen = height * width;
+      const shift = opts.rollLongitude ? width >>> 1 : 0;
+      registerSampleTile(opts.sampleKey, options.x, options.y, options.z, {
+        rowStart,
+        colStart,
+        height,
+        width,
+        valueAt: (lr, lc, frame) => {
+          if (frame < 0 || frame >= depth) return Number.NaN;
+          const physCol = shift ? (lc + shift) % width : lc;
+          const v = Number(raw[frame * frameLen + lr * width + physCol]);
+          return fill !== null && v === fill ? Number.NaN : v * scale + offset;
+        },
+      });
     }
 
     const start = opts.window ? opts.window.start : 0;

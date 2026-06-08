@@ -4,6 +4,7 @@ import {
   autoStatsFromGlobal,
   buildBandStats,
 } from "../../../render/stats";
+import { readSampleValue } from "../../../render/sample-source";
 import { buildSingleBandRenderTile } from "../../../render/single-band-pipeline";
 import type { MultiBandTileData } from "../../../render/shared-textures";
 import {
@@ -11,7 +12,7 @@ import {
   makeTextureArrayTileLoader,
   type TextureArrayTileData,
 } from "../../../render/texture-array-pipeline";
-import { spatialTileSize } from "../../chunk-size";
+import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
 import { buildDimLabel } from "./cf-coords";
@@ -257,13 +258,56 @@ function readStoreNativeGrid(
 
 const EARTH_CIRCUMFERENCE_M = 40_075_017;
 
-/** Lowest web-mercator zoom to render at, from the grid's pixel size: two
- * levels below the data's native zoom (where 1 data px ≈ 1 tile px). High-res
- * grids (FTW ~10 m → ~z12) gate; coarse grids (≥0.2° → ~z0–1) don't. */
-function deriveMinZoom(metersPerPx: number): number {
+/** Per-axis screen px the render-zoom budget is sized for. 256 = one tile;
+ * matches the legacy `nativeZoom − 2` cushion this gate replaces, so typical
+ * stores reproduce their old min-zoom. */
+const REF_AXIS_PX = 256;
+/** Fetch budget for the lowest render zoom: a viewport fill must stay within
+ * BOTH a byte budget (resolution × dtype — the bytes a zoom-out actually pulls)
+ * AND a request-count budget (chunks the viewport straddles). Tuned so typical
+ * stores land on the old resolution-only floor (FTW ~z12, 0.25° ~z1). */
+const BUDGET_BYTES = 8_000_000;
+const BUDGET_CHUNKS = 16;
+const MAX_RENDER_ZOOM = 24;
+
+/** Lowest web-mercator zoom to render at, modelling the data a zoom-out pulls.
+ * The deck.gl-zarr layer reads single-resolution stores at full resolution,
+ * one chunk per tile, fetching every chunk the viewport straddles — so zooming
+ * out multiplies both bytes (more data pixels) and requests (more chunks).
+ *
+ * For each candidate zoom we estimate, over a {@link REF_AXIS_PX}-px reference
+ * tile, the data pixels covered (`d`), the bytes (`d² · bytesPerEl` — the
+ * zoom-fixable, resolution/dtype-driven cost), and the chunk requests
+ * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
+ * lowest zoom satisfying both budgets.
+ *
+ * Bytes are deliberately the *pure viewport* (not rounded up to whole chunks):
+ * a store with one giant chunk pulls that whole chunk at any zoom, so zooming
+ * can't reduce it — gating such a store harder would only hide data at equal
+ * cost. It therefore renders at its resolution floor (the byte/request terms
+ * collapse to resolution-only when one chunk covers the viewport). Chunk size
+ * bites where zoom can fix it: tiny chunks blow the request budget and gate up.
+ *
+ * Examples: FTW ~10 m/256-chunk/f32 → ~z12; 0.25° → ~z1; the same 10 m grid
+ * with 64-px chunks → ~z14 (request-bound); int8 gates ~1 level looser than
+ * float32 when bytes bind. */
+export function deriveMinZoom(
+  metersPerPx: number,
+  chunkW: number,
+  chunkH: number,
+  bytesPerEl: number,
+): number {
   if (!(metersPerPx > 0)) return 0;
+  const cw = chunkW > 0 ? chunkW : REF_AXIS_PX;
+  const ch = chunkH > 0 ? chunkH : REF_AXIS_PX;
   const nativeZoom = Math.log2(EARTH_CIRCUMFERENCE_M / (metersPerPx * 256));
-  return Math.max(0, Math.ceil(nativeZoom) - 2);
+  for (let z = 0; z <= MAX_RENDER_ZOOM; z++) {
+    const d = REF_AXIS_PX * 2 ** (nativeZoom - z); // data px per axis
+    const requests = Math.ceil(d / cw) * Math.ceil(d / ch);
+    const bytes = d * d * bytesPerEl;
+    if (bytes <= BUDGET_BYTES && requests <= BUDGET_CHUNKS) return z;
+  }
+  return MAX_RENDER_ZOOM;
 }
 
 function pickDefaultVariable(variables: ScalarGridVariable[]): string {
@@ -325,7 +369,15 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const metersPerPx = /4326/.test(projCode)
       ? degPerPxLon * (EARTH_CIRCUMFERENCE_M / 360)
       : degPerPxLon; // projected transforms are already in metres
-    const minRenderZoom = deriveMinZoom(metersPerPx);
+    const nd = firstArr.chunks.length;
+    const chunkH = firstArr.chunks[nd - 2] ?? REF_AXIS_PX;
+    const chunkW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
+    const minRenderZoom = deriveMinZoom(
+      metersPerPx,
+      chunkW,
+      chunkH,
+      bytesPerElement(firstArr.dtype),
+    );
 
     // CF labels for every non-spatial dim (dates / durations / index).
     const dimSize = new Map<string, number>();
@@ -450,11 +502,9 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const pinnedKey = serializeDims(fetchedDims);
     // Cache the decoded chunk by variable + the pinned (non-texture) dims; the
     // window start is NOT part of the key, so every window shares one decode.
-    const chunkKey = `${state.variable}|${serializeDims(
-      Object.fromEntries(
-        Object.entries(state.dimIndices).filter(([k]) => k !== texDim?.name),
-      ),
-    )}`;
+    // The same key identifies the tiles registered for the hover tooltip.
+    const sampleKey = sampleKeyFor(state, variableMeta);
+    const chunkKey = sampleKey;
     const common = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       node: arr as any,
@@ -492,6 +542,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
           rollLongitude: ctx.rollLongitude,
           window: { start: windowStart, len: windowLen },
           chunkKey,
+          sampleKey,
         }),
         renderTile,
         updateTriggers: {
@@ -527,6 +578,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
         scaleFactor: variableMeta.scaleFactor,
         addOffset: variableMeta.addOffset,
         rollLongitude: ctx.rollLongitude,
+        sampleKey,
       }),
       renderTile,
       updateTriggers: {
@@ -540,6 +592,41 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
         ],
       },
     });
+  },
+
+  sampleValue(ctx, state, lng, lat) {
+    const variableMeta = ctx.variables.find((v) => v.name === state.variable);
+    if (!variableMeta) return null;
+    const attrs = ctx.spatialAttrs as ScalarGridSpatialAttrs;
+    const t = attrs?.["spatial:transform"];
+    const shape = attrs?.["spatial:shape"];
+    if (!Array.isArray(t) || !Array.isArray(shape)) return null;
+    const [stepLon, , originLon, , stepLat, originLat] = t;
+    const [height, width] = shape;
+    if (!stepLon || !stepLat) return null;
+    // Invert the affine. Both render paths read in the same -180..180 logical
+    // frame (the texture-array tile re-rolls internally), so one inversion
+    // serves both. Wrap lng into [-180, 180) so hovering a repeated world copy
+    // (maplibre renders several) still resolves on global grids.
+    //
+    // `floor`, not `round`: deck places the affine origin at the pixel *corner*
+    // (it spans array index [0, W]×[0, H], so texel i covers index [i, i+1)).
+    // Flooring the fractional index picks the texel actually drawn under the
+    // cursor; rounding would snap to cell centers — a half-cell offset.
+    const wrappedLng = ((((lng + 180) % 360) + 360) % 360) - 180;
+    const col = Math.floor((wrappedLng - originLon) / stepLon);
+    const row = Math.floor((lat - originLat) / stepLat);
+    if (row < 0 || row >= height || col < 0 || col >= width) return null;
+    const frame = variableMeta.textureDim
+      ? (state.dimIndices[variableMeta.textureDim.name] ?? 0)
+      : 0;
+    const value = readSampleValue(sampleKeyFor(state, variableMeta), row, col, frame);
+    if (value === null) return null; // no tile loaded here → hide
+    return {
+      label: variableMeta.longName ?? variableMeta.name,
+      value: Number.isNaN(value) ? null : value,
+      units: variableMeta.units,
+    };
   },
 
   async computeAutoStats({ ctx, state, signal }) {
@@ -607,4 +694,19 @@ function serializeDims(dimIndices: Record<string, number>): string {
     .sort()
     .map((k) => `${k}=${dimIndices[k]}`)
     .join(",");
+}
+
+/** Identity of the decoded data for the current selection, EXCLUDING the
+ * texture/scrub frame (one cached chunk holds every frame). Computed
+ * identically in `buildLayer` (to register sample tiles) and `sampleValue` (to
+ * read them) so they always agree. Equals the texture path's `chunkKey`. */
+function sampleKeyFor(
+  state: ScalarGridState,
+  variable: ScalarGridVariable,
+): string {
+  const texName = variable.textureDim?.name;
+  const pinned = Object.fromEntries(
+    Object.entries(state.dimIndices).filter(([k]) => k !== texName),
+  );
+  return `${state.variable}|${serializeDims(pinned)}`;
 }

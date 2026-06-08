@@ -67,15 +67,26 @@ export type ScalarGridState = {
   dimIndices: Record<string, number>;
 };
 
-/** Default index per non-spatial dim: most-recent for time-like dims, 0 for
- * the rest. Shared by `initialState` and the variable-switch handler so a
- * new variable lands on a sensible frame. */
+/** Dimensions that index a forecast/analysis time and should default to the
+ * most-recent (last) frame: an explicit `time`, or a forecast-initialization /
+ * reference-time axis (`init`, `init_time`, `reference_time`,
+ * `forecast_reference_time`, `analysis_time`). Early frames of such axes are
+ * often empty (e.g. SEAS5 SPI-3 is undefined before 3 months of history), and
+ * the latest is the natural default anyway. Forecast-horizon axes (`lead`,
+ * `step`, `member`, `level`) keep index 0. */
+function defaultsToLatest(dimName: string): boolean {
+  return /time|init|reference|analysis/i.test(dimName);
+}
+
+/** Default index per non-spatial dim: most-recent for time-like dims
+ * ({@link defaultsToLatest}), 0 for the rest. Shared by `initialState` and the
+ * variable-switch handler so a new variable lands on a sensible frame. */
 export function defaultDimIndices(
   variable: ScalarGridVariable,
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const dim of variable.dims) {
-    out[dim.name] = /time/i.test(dim.name) ? Math.max(0, dim.size - 1) : 0;
+    out[dim.name] = defaultsToLatest(dim.name) ? Math.max(0, dim.size - 1) : 0;
   }
   return out;
 }
