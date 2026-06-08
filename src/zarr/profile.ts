@@ -92,6 +92,17 @@ export type ZarrProfile<
    * omitted, the App falls back to the resolveNode deps. */
   statsDeps?: (state: S) => unknown[];
   buildLayer: (args: BuildLayerArgs<Ctx, S>) => Layer | null;
+  /** Synchronously read the underlying data value at a lng/lat from
+   * already-decoded tiles (no fetch) for the hover tooltip. Returns `null` when
+   * off-grid or no tile is loaded there; a result with `value: null` means the
+   * cell is fill/no-data. Profiles without a single scalar value (e.g. RGB
+   * composites) omit this — the chassis then shows no tooltip. */
+  sampleValue?: (
+    ctx: Ctx,
+    state: S,
+    lng: number,
+    lat: number,
+  ) => { label: string; value: number | null; units: string | null } | null;
   /** Whether this profile uses single-band + colormap rendering (and so
    * needs the colormap sprite uploaded before layer construction). */
   needsColormap: boolean;

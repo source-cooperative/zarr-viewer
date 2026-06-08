@@ -1,5 +1,6 @@
 import type { GetTileDataOptions } from "@developmentseed/deck.gl-zarr";
 import * as zarr from "zarrita";
+import { registerSampleTile } from "../../../render/sample-source";
 import {
   buildMultiBandTile,
   type MultiBandTileData,
@@ -23,6 +24,9 @@ export function makeScalarGridTileLoader(opts: {
    * valid when a tile spans the full longitude extent — true for these
    * stores, whose longitude is a single chunk. */
   rollLongitude?: boolean;
+  /** When set, register each decoded tile under this key so the hover tooltip
+   * can read values from it (see render/sample-source). */
+  sampleKey?: string;
 }) {
   const scale = opts.scaleFactor ?? 1;
   const offset = opts.addOffset ?? 0;
@@ -73,6 +77,21 @@ export function makeScalarGridTileLoader(opts: {
         }
       }
       float32 = rolled;
+    }
+    if (opts.sampleKey) {
+      // `float32` is already CF-decoded and (when applicable) rolled to the
+      // -180..180 frame, so the value reads directly — no roll in `valueAt`.
+      const nd = sliceSpec.length;
+      const rowStart = (sliceSpec[nd - 2] as zarr.Slice)?.start ?? 0;
+      const colStart = (sliceSpec[nd - 1] as zarr.Slice)?.start ?? 0;
+      const buf = float32;
+      registerSampleTile(opts.sampleKey, options.x, options.y, options.z, {
+        rowStart,
+        colStart,
+        height,
+        width,
+        valueAt: (lr, lc) => buf[lr * width + lc]!,
+      });
     }
     // nodata: null — NaN is filtered automatically for float textures by
     // the single-band render pipeline's FilterNaN.

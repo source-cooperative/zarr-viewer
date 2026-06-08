@@ -4,6 +4,7 @@ import {
   autoStatsFromGlobal,
   buildBandStats,
 } from "../../../render/stats";
+import { readSampleValue } from "../../../render/sample-source";
 import { buildSingleBandRenderTile } from "../../../render/single-band-pipeline";
 import type { MultiBandTileData } from "../../../render/shared-textures";
 import {
@@ -501,11 +502,9 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const pinnedKey = serializeDims(fetchedDims);
     // Cache the decoded chunk by variable + the pinned (non-texture) dims; the
     // window start is NOT part of the key, so every window shares one decode.
-    const chunkKey = `${state.variable}|${serializeDims(
-      Object.fromEntries(
-        Object.entries(state.dimIndices).filter(([k]) => k !== texDim?.name),
-      ),
-    )}`;
+    // The same key identifies the tiles registered for the hover tooltip.
+    const sampleKey = sampleKeyFor(state, variableMeta);
+    const chunkKey = sampleKey;
     const common = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       node: arr as any,
@@ -543,6 +542,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
           rollLongitude: ctx.rollLongitude,
           window: { start: windowStart, len: windowLen },
           chunkKey,
+          sampleKey,
         }),
         renderTile,
         updateTriggers: {
@@ -578,6 +578,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
         scaleFactor: variableMeta.scaleFactor,
         addOffset: variableMeta.addOffset,
         rollLongitude: ctx.rollLongitude,
+        sampleKey,
       }),
       renderTile,
       updateTriggers: {
@@ -591,6 +592,41 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
         ],
       },
     });
+  },
+
+  sampleValue(ctx, state, lng, lat) {
+    const variableMeta = ctx.variables.find((v) => v.name === state.variable);
+    if (!variableMeta) return null;
+    const attrs = ctx.spatialAttrs as ScalarGridSpatialAttrs;
+    const t = attrs?.["spatial:transform"];
+    const shape = attrs?.["spatial:shape"];
+    if (!Array.isArray(t) || !Array.isArray(shape)) return null;
+    const [stepLon, , originLon, , stepLat, originLat] = t;
+    const [height, width] = shape;
+    if (!stepLon || !stepLat) return null;
+    // Invert the affine. Both render paths read in the same -180..180 logical
+    // frame (the texture-array tile re-rolls internally), so one inversion
+    // serves both. Wrap lng into [-180, 180) so hovering a repeated world copy
+    // (maplibre renders several) still resolves on global grids.
+    //
+    // `floor`, not `round`: deck places the affine origin at the pixel *corner*
+    // (it spans array index [0, W]×[0, H], so texel i covers index [i, i+1)).
+    // Flooring the fractional index picks the texel actually drawn under the
+    // cursor; rounding would snap to cell centers — a half-cell offset.
+    const wrappedLng = ((((lng + 180) % 360) + 360) % 360) - 180;
+    const col = Math.floor((wrappedLng - originLon) / stepLon);
+    const row = Math.floor((lat - originLat) / stepLat);
+    if (row < 0 || row >= height || col < 0 || col >= width) return null;
+    const frame = variableMeta.textureDim
+      ? (state.dimIndices[variableMeta.textureDim.name] ?? 0)
+      : 0;
+    const value = readSampleValue(sampleKeyFor(state, variableMeta), row, col, frame);
+    if (value === null) return null; // no tile loaded here → hide
+    return {
+      label: variableMeta.longName ?? variableMeta.name,
+      value: Number.isNaN(value) ? null : value,
+      units: variableMeta.units,
+    };
   },
 
   async computeAutoStats({ ctx, state, signal }) {
@@ -658,4 +694,19 @@ function serializeDims(dimIndices: Record<string, number>): string {
     .sort()
     .map((k) => `${k}=${dimIndices[k]}`)
     .join(",");
+}
+
+/** Identity of the decoded data for the current selection, EXCLUDING the
+ * texture/scrub frame (one cached chunk holds every frame). Computed
+ * identically in `buildLayer` (to register sample tiles) and `sampleValue` (to
+ * read them) so they always agree. Equals the texture path's `chunkKey`. */
+function sampleKeyFor(
+  state: ScalarGridState,
+  variable: ScalarGridVariable,
+): string {
+  const texName = variable.textureDim?.name;
+  const pinned = Object.fromEntries(
+    Object.entries(state.dimIndices).filter(([k]) => k !== texName),
+  );
+  return `${state.variable}|${serializeDims(pinned)}`;
 }

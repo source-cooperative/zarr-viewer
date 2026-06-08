@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 const COMMIT_DELAY_MS = 200;
 
-/** Compact display for a slider value: 4 significant figures, switching to
+/** Compact display for a numeric value: 4 significant figures, switching to
  * exponential for very small/large magnitudes. */
-function formatNumber(v: number): string {
+export function formatNumber(v: number): string {
   if (!Number.isFinite(v)) return "—";
   const a = Math.abs(v);
   if (a !== 0 && (a < 0.001 || a >= 100_000)) return v.toExponential(2);
