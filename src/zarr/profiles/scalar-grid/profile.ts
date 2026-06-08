@@ -185,15 +185,56 @@ async function enumerateVariables(
   return out;
 }
 
+/** Resolve the longitude framing for a 1-D longitude coordinate array: the
+ * affine origin/step to render with, and whether the tile loader must roll
+ * columns. Pure (no I/O) so it can be unit-tested.
+ *
+ * Three conventions are handled:
+ *  - **0..360** (e.g. GFS): `lon0 >= 0` and the extent reaches past +180.
+ *    Reframed to -180..180 and the tile loader rolls each tile's columns by
+ *    half-width to match (see {@link makeScalarGridTileLoader}).
+ *  - **global -180..180** (e.g. ECMWF, GEOS, EEPS): a grid spanning ~360°.
+ *  - **regional**: anything else — kept at its native origin/step.
+ *
+ * For any global grid the origin is pinned to exactly -180 AND the step to an
+ * exact `360 / count`, so the extent is exactly [-180, 180]. This matters
+ * because a global grid whose stored longitudes are low-precision (e.g. EEPS,
+ * a 0.02° / 18000-cell grid) yields a `lon[1]-lon[0]` step that drifts by a
+ * few cells over the full width — pushing the computed east edge past +180.
+ * That antimeridian overshoot makes the raster→mercator reprojection mesh
+ * diverge and nothing draws; snapping the step removes the overshoot. The
+ * `isGlobal` tolerance is likewise generous (≥0.5°) to absorb that drift. */
+export function resolveLonFrame(opts: {
+  lon0: number;
+  lon1: number;
+  lonLast: number;
+  count: number;
+}): {
+  originLon: number;
+  stepLon: number;
+  rollLongitude: boolean;
+  isGlobal: boolean;
+} {
+  const { lon0, lon1, lonLast, count } = opts;
+  const nativeStep = lon1 - lon0;
+  const span = Math.abs(count * nativeStep);
+  const isGlobal =
+    Math.abs(span - 360) < Math.max(Math.abs(nativeStep) * 1.5, 0.5);
+  const rollLongitude = lon0 >= 0 && lonLast > 180;
+  const globalFrame = rollLongitude || isGlobal;
+  return {
+    originLon: globalFrame ? -180 : lon0,
+    stepLon: globalFrame ? 360 / count : nativeStep,
+    rollLongitude,
+    isGlobal,
+  };
+}
+
 /** Synthesize GeoZarr grid attrs from the 1-D lat/lon coordinate arrays
  * (named by the spatial dims). Mirrors the FireSmoke approach: the affine
  * origin is the first cell's coordinate, the step is the cell spacing
- * (negative for descending latitude).
- *
- * Detects a 0..360 longitude convention (first cell >= 0, last cell > 180,
- * e.g. GFS) and, for it, shifts the transform origin to the -180..180 frame
- * so the basemap places the data correctly — the tile loader then rolls each
- * tile's columns by half-width to match (see {@link makeScalarGridTileLoader}). */
+ * (negative for descending latitude). Longitude framing (0..360 roll, global
+ * snap) is delegated to {@link resolveLonFrame}. */
 async function synthesizeSpatialAttrs(
   group: zarr.Group<zarr.Readable>,
   latName: string,
@@ -215,29 +256,27 @@ async function synthesizeSpatialAttrs(
     );
   }
   const stepLat = Number(lat[1]) - Number(lat[0]);
-  const stepLon = Number(lon[1]) - Number(lon[0]);
-  const lon0 = Number(lon[0]);
-  const lonLast = Number(lon[lon.length - 1]);
-  const span = Math.abs(lon.length * stepLon);
-  // A grid whose longitude spans ~360° is global. Some (e.g. SILAM) are
-  // offset so their east edge pokes past +180; that antimeridian crossing
-  // makes the raster→mercator reprojection mesh diverge and nothing draws.
-  const isGlobal = Math.abs(span - 360) < Math.abs(stepLon) * 1.5;
-  // 0..360 convention (e.g. GFS): origin >= 0 and extent past 180 — rolled
-  // into the -180..180 frame by the tile loader.
-  const rollLongitude = lon0 >= 0 && lonLast > 180;
-  // For any global grid, snap the origin to exactly -180 so the extent is
-  // [-180, 180] and the reprojection converges (sub-cell shift; no-op for a
-  // grid already starting at -180 like GEOS). Regional grids keep lon[0].
-  const originLon = rollLongitude || isGlobal ? -180 : lon0;
+  const frame = resolveLonFrame({
+    lon0: Number(lon[0]),
+    lon1: Number(lon[1]),
+    lonLast: Number(lon[lon.length - 1]),
+    count: lon.length,
+  });
   return {
     attrs: {
       "spatial:dimensions": [latName, lonName],
-      "spatial:transform": [stepLon, 0, originLon, 0, stepLat, Number(lat[0])],
+      "spatial:transform": [
+        frame.stepLon,
+        0,
+        frame.originLon,
+        0,
+        stepLat,
+        Number(lat[0]),
+      ],
       "spatial:shape": [lat.length, lon.length],
       "proj:code": "EPSG:4326",
     },
-    rollLongitude,
+    rollLongitude: frame.rollLongitude,
   };
 }
 
