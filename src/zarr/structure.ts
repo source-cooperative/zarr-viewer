@@ -12,10 +12,10 @@
 
 /** Where the GeoZarr-style attrs handed to `ZarrLayer.metadata` came from. */
 export type GeoZarrMetadataSource =
-  /** Already on the store at open time (AEF). */
+  /** Already on the store at open time (AEF, FTW). */
   | "store-native"
   /** Hand-crafted constant injected because the store has no GeoZarr
-   * attrs of its own (ECMWF). */
+   * attrs of its own. */
   | "injected"
   /** Built at prepare-time from coord arrays or other store metadata
    * (FireSmoke). */

@@ -128,7 +128,7 @@ async function openIcechunk(
  *
  * FetchStore stacking:
  * 1. `FetchStore` — base HTTP backend. `useSuffixRequest: true` is
- *    REQUIRED for sharded stores (ECMWF, AEF). The sharding codec reads
+ *    REQUIRED for sharded stores (AEF, FTW). The sharding codec reads
  *    its index from the end of each shard via a suffix read; zarrita's
  *    default path does a HEAD first to turn that into an absolute range,
  *    but cross-origin HEAD responses on `data.source.coop` don't expose a
@@ -139,7 +139,7 @@ async function openIcechunk(
  *    the HEAD entirely and reads only the index.
  * 2. `withRangeCoalescing` — merges concurrent `getRange` calls within a
  *    microtask if they're separated by < 32 KB. For sharded stores
- *    (ECMWF, AEF) this is a big win: a single tile typically reads
+ *    (AEF, FTW) this is a big win: a single tile typically reads
  *    several nearby sub-shards inside the same outer-chunk file, and
  *    coalescing collapses those into one HTTP request.
  * 3. `withConsolidatedMetadata` (optional) — exposes `.contents()` for

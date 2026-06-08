@@ -235,8 +235,8 @@ export default function App() {
       }
     })();
     return () => ctrl.abort();
-    // ECMWF returns `[variable]` from statsDeps, so stats recompute only
-    // on variable change, not on every dim-slider tick.
+    // Profiles narrow `statsDeps` (e.g. FTW returns `[time, band]`) so
+    // stats recompute only on those changes, not on every dim-slider tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, profileCtx, statsDepsKey]);
 

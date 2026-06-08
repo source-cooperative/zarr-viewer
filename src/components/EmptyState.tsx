@@ -33,8 +33,8 @@ export function EmptyState({ onSubmit }: Props) {
             Open a GeoZarr / Zarr store
           </h2>
           <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-            Two profiles ship with this viewer: ECMWF forecast cube and AEF
-            embedding mosaic.
+            Pick a bundled example below, or paste any GeoZarr / Zarr store
+            URL.
           </span>
         </div>
 

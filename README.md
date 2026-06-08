@@ -9,10 +9,18 @@ build on [`@developmentseed/deck.gl-raster`](https://www.npmjs.com/package/@deve
 
 The viewer dispatches by **profile**: each dataset's specifics (metadata
 override, dimension names, render path, selector UI, default rescale) live
-in `src/zarr/profiles/<name>/`. Two profiles ship with v1:
+in `src/zarr/profiles/<name>/`. Three profiles ship on `main`:
 
-- **ECMWF** — `data.source.coop/dynamical/ecmwf-ifs-ens-forecast-15-day-0-25-degree/v0.1.0.zarr` (Zarr v3 + consolidated, float32 single-variable cube; single-band + colormap)
 - **AEF** — `data.source.coop/tge-labs/aef-mosaic` (Zarr v3, GeoZarr-compliant, 64-band int8 embeddings; runtime RGB band picks)
+- **FireSmoke** — `data.source.coop/alukach/firesmoke/forecasts.zarr` (BlueSky PM2.5 wildfire-smoke forecast; single-band + colormap)
+- **FTW** — `data.source.coop/ftw/global-data/predictions/zarr/alpha/global.zarr` (Fields of The World global field-boundary predictions, float32; single-band + colormap)
+
+The **ECMWF** profile lives on the
+[`icechunk-support`](https://github.com/tylere/geozarr-viewer/tree/icechunk-support)
+branch: its source
+(`dynamical/ecmwf-ifs-ens-forecast-15-day-0-25-degree`) is published only as
+[Icechunk](https://icechunk.io/), which zarrita's `FetchStore` can't read, so
+the profile is parked there pending Icechunk support.
 
 ## Development
 
