@@ -1,6 +1,7 @@
 import { ZarrLayer } from "@developmentseed/deck.gl-zarr";
 import * as zarr from "zarrita";
 import { LOCATIONS } from "../../../locations";
+import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
 import { spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
@@ -168,6 +169,10 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
       // Align tile grid with the embeddings array's spatial chunk shape.
       tileSize: spatialTileSize(ctx.embeddings),
       minZoom: MIN_ZOOM,
+      // Required (with the getTileIndices patch) to keep already-loaded tiles
+      // painted below minZoom: a non-null extent disables TileLayer's own
+      // below-minZoom hide gate. See keep-min-zoom-tiles.ts.
+      extent: KEEP_MIN_ZOOM_EXTENT,
       maxRequests: 20,
       // Each tile near native zoom is ~3 MB (one inner 256² chunk). A
       // roomy cache stops overlapping/adjacent tiles from re-fetching the

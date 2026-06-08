@@ -26,6 +26,7 @@ import { FullscreenButton } from "./components/FullscreenButton";
 import { StructurePanel } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
+import { installKeepMinZoomTiles } from "./render/keep-min-zoom-tiles";
 import type { AutoStats } from "./render/stats";
 import { detectProfile, normalizeStoreUrl } from "./source";
 import {
@@ -40,6 +41,10 @@ import {
   type CodecSummary,
   type StructureProfileSummary,
 } from "./zarr/structure";
+
+// Keep already-loaded tiles painted when zoomed out past a layer's minZoom
+// (deck.gl-zarr would otherwise blank the map below the threshold).
+installKeepMinZoomTiles();
 
 const darkMql = window.matchMedia("(prefers-color-scheme: dark)");
 const subscribeColorScheme = (cb: () => void) => {

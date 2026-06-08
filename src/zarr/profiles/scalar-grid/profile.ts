@@ -12,6 +12,7 @@ import {
   makeTextureArrayTileLoader,
   type TextureArrayTileData,
 } from "../../../render/texture-array-pipeline";
+import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
@@ -185,15 +186,56 @@ async function enumerateVariables(
   return out;
 }
 
+/** Resolve the longitude framing for a 1-D longitude coordinate array: the
+ * affine origin/step to render with, and whether the tile loader must roll
+ * columns. Pure (no I/O) so it can be unit-tested.
+ *
+ * Three conventions are handled:
+ *  - **0..360** (e.g. GFS): `lon0 >= 0` and the extent reaches past +180.
+ *    Reframed to -180..180 and the tile loader rolls each tile's columns by
+ *    half-width to match (see {@link makeScalarGridTileLoader}).
+ *  - **global -180..180** (e.g. ECMWF, GEOS, EEPS): a grid spanning ~360°.
+ *  - **regional**: anything else — kept at its native origin/step.
+ *
+ * For any global grid the origin is pinned to exactly -180 AND the step to an
+ * exact `360 / count`, so the extent is exactly [-180, 180]. This matters
+ * because a global grid whose stored longitudes are low-precision (e.g. EEPS,
+ * a 0.02° / 18000-cell grid) yields a `lon[1]-lon[0]` step that drifts by a
+ * few cells over the full width — pushing the computed east edge past +180.
+ * That antimeridian overshoot makes the raster→mercator reprojection mesh
+ * diverge and nothing draws; snapping the step removes the overshoot. The
+ * `isGlobal` tolerance is likewise generous (≥0.5°) to absorb that drift. */
+export function resolveLonFrame(opts: {
+  lon0: number;
+  lon1: number;
+  lonLast: number;
+  count: number;
+}): {
+  originLon: number;
+  stepLon: number;
+  rollLongitude: boolean;
+  isGlobal: boolean;
+} {
+  const { lon0, lon1, lonLast, count } = opts;
+  const nativeStep = lon1 - lon0;
+  const span = Math.abs(count * nativeStep);
+  const isGlobal =
+    Math.abs(span - 360) < Math.max(Math.abs(nativeStep) * 1.5, 0.5);
+  const rollLongitude = lon0 >= 0 && lonLast > 180;
+  const globalFrame = rollLongitude || isGlobal;
+  return {
+    originLon: globalFrame ? -180 : lon0,
+    stepLon: globalFrame ? 360 / count : nativeStep,
+    rollLongitude,
+    isGlobal,
+  };
+}
+
 /** Synthesize GeoZarr grid attrs from the 1-D lat/lon coordinate arrays
  * (named by the spatial dims). Mirrors the FireSmoke approach: the affine
  * origin is the first cell's coordinate, the step is the cell spacing
- * (negative for descending latitude).
- *
- * Detects a 0..360 longitude convention (first cell >= 0, last cell > 180,
- * e.g. GFS) and, for it, shifts the transform origin to the -180..180 frame
- * so the basemap places the data correctly — the tile loader then rolls each
- * tile's columns by half-width to match (see {@link makeScalarGridTileLoader}). */
+ * (negative for descending latitude). Longitude framing (0..360 roll, global
+ * snap) is delegated to {@link resolveLonFrame}. */
 async function synthesizeSpatialAttrs(
   group: zarr.Group<zarr.Readable>,
   latName: string,
@@ -215,29 +257,27 @@ async function synthesizeSpatialAttrs(
     );
   }
   const stepLat = Number(lat[1]) - Number(lat[0]);
-  const stepLon = Number(lon[1]) - Number(lon[0]);
-  const lon0 = Number(lon[0]);
-  const lonLast = Number(lon[lon.length - 1]);
-  const span = Math.abs(lon.length * stepLon);
-  // A grid whose longitude spans ~360° is global. Some (e.g. SILAM) are
-  // offset so their east edge pokes past +180; that antimeridian crossing
-  // makes the raster→mercator reprojection mesh diverge and nothing draws.
-  const isGlobal = Math.abs(span - 360) < Math.abs(stepLon) * 1.5;
-  // 0..360 convention (e.g. GFS): origin >= 0 and extent past 180 — rolled
-  // into the -180..180 frame by the tile loader.
-  const rollLongitude = lon0 >= 0 && lonLast > 180;
-  // For any global grid, snap the origin to exactly -180 so the extent is
-  // [-180, 180] and the reprojection converges (sub-cell shift; no-op for a
-  // grid already starting at -180 like GEOS). Regional grids keep lon[0].
-  const originLon = rollLongitude || isGlobal ? -180 : lon0;
+  const frame = resolveLonFrame({
+    lon0: Number(lon[0]),
+    lon1: Number(lon[1]),
+    lonLast: Number(lon[lon.length - 1]),
+    count: lon.length,
+  });
   return {
     attrs: {
       "spatial:dimensions": [latName, lonName],
-      "spatial:transform": [stepLon, 0, originLon, 0, stepLat, Number(lat[0])],
+      "spatial:transform": [
+        frame.stepLon,
+        0,
+        frame.originLon,
+        0,
+        stepLat,
+        Number(lat[0]),
+      ],
       "spatial:shape": [lat.length, lon.length],
       "proj:code": "EPSG:4326",
     },
-    rollLongitude,
+    rollLongitude: frame.rollLongitude,
   };
 }
 
@@ -269,6 +309,12 @@ const REF_AXIS_PX = 256;
 const BUDGET_BYTES = 8_000_000;
 const BUDGET_CHUNKS = 16;
 const MAX_RENDER_ZOOM = 24;
+/** A single-chunk-plane store (the spatial chunk spans the whole lat/lon
+ * shape) is exactly one tile; zooming in never loads anything new. Render it at
+ * world view when that one fetch is at most this many bytes. ~256 MB admits
+ * EEPS-class global float16 grids (18000×6501×2 ≈ 234 MB) while still deferring
+ * ~½ GB+ planes via the zoom gate. */
+const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
 
 /** Lowest web-mercator zoom to render at, modelling the data a zoom-out pulls.
  * The deck.gl-zarr layer reads single-resolution stores at full resolution,
@@ -281,23 +327,42 @@ const MAX_RENDER_ZOOM = 24;
  * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
  * lowest zoom satisfying both budgets.
  *
- * Bytes are deliberately the *pure viewport* (not rounded up to whole chunks):
- * a store with one giant chunk pulls that whole chunk at any zoom, so zooming
- * can't reduce it — gating such a store harder would only hide data at equal
- * cost. It therefore renders at its resolution floor (the byte/request terms
- * collapse to resolution-only when one chunk covers the viewport). Chunk size
- * bites where zoom can fix it: tiny chunks blow the request budget and gate up.
+ * **Single-chunk-plane special case** (when `shapeW`/`shapeH` are passed and the
+ * spatial chunk spans the whole plane): the store is one tile, so zooming in
+ * can't reduce the fetch. If that one fetch fits {@link SINGLE_TILE_BYTE_BUDGET}
+ * we render it at world view (z0) — the per-zoom byte gate is meaningless here
+ * and would only hide globally-available data behind a misleading "zoom in"
+ * hint. An over-budget single plane falls through to the loop below, which
+ * settles on its resolution floor and defers the large fetch until the user
+ * zooms in.
+ *
+ * Bytes are otherwise the *pure viewport* (not rounded up to whole chunks):
+ * tiny chunks blow the request budget and gate up, where zoom can actually fix
+ * the overfetch.
  *
  * Examples: FTW ~10 m/256-chunk/f32 → ~z12; 0.25° → ~z1; the same 10 m grid
  * with 64-px chunks → ~z14 (request-bound); int8 gates ~1 level looser than
- * float32 when bytes bind. */
+ * float32 when bytes bind; EEPS 0.02°/whole-plane float16 → z0. */
 export function deriveMinZoom(
   metersPerPx: number,
   chunkW: number,
   chunkH: number,
   bytesPerEl: number,
+  /** Full spatial shape, when known. Enables the single-chunk-plane
+   * short-circuit; omit to keep the pure per-zoom budget gate. */
+  shapeW?: number,
+  shapeH?: number,
 ): number {
   if (!(metersPerPx > 0)) return 0;
+  if (
+    shapeW != null &&
+    shapeH != null &&
+    chunkW >= shapeW &&
+    chunkH >= shapeH &&
+    chunkW * chunkH * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
+  ) {
+    return 0; // one global tile; zooming loads nothing new
+  }
   const cw = chunkW > 0 ? chunkW : REF_AXIS_PX;
   const ch = chunkH > 0 ? chunkH : REF_AXIS_PX;
   const nativeZoom = Math.log2(EARTH_CIRCUMFERENCE_M / (metersPerPx * 256));
@@ -372,11 +437,15 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const nd = firstArr.chunks.length;
     const chunkH = firstArr.chunks[nd - 2] ?? REF_AXIS_PX;
     const chunkW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
+    const shapeH = firstArr.shape[nd - 2] ?? 0;
+    const shapeW = firstArr.shape[nd - 1] ?? 0;
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
       chunkW,
       chunkH,
       bytesPerElement(firstArr.dtype),
+      shapeW,
+      shapeH,
     );
 
     // CF labels for every non-spatial dim (dates / durations / index).
@@ -512,6 +581,10 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       selection,
       tileSize: spatialTileSize(arr),
       minZoom: ctx.minRenderZoom,
+      // Required (with the getTileIndices patch) to keep already-loaded tiles
+      // painted below minZoom: a non-null extent disables TileLayer's own
+      // below-minZoom hide gate. See keep-min-zoom-tiles.ts.
+      extent: KEEP_MIN_ZOOM_EXTENT,
       maxRequests: 20,
       maxCacheSize: 10,
       opacity: chassisState.opacity,

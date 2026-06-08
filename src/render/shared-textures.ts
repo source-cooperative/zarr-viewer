@@ -69,6 +69,49 @@ function coerceForFormat(
   return Float32Array.from(array);
 }
 
+/** WebGL2 guarantees `MAX_TEXTURE_SIZE` ≥ 2048; real GPUs report 8192–16384.
+ * Used only if the device doesn't expose its limit. */
+const FALLBACK_MAX_TEXTURE_DIM = 8192;
+
+function maxTextureDim(device: Device): number {
+  const lim = (device.limits as { maxTextureDimension2D?: number } | undefined)
+    ?.maxTextureDimension2D;
+  return typeof lim === "number" && lim > 0 ? lim : FALLBACK_MAX_TEXTURE_DIM;
+}
+
+/** Decimate a single-band plane to fit `maxDim` on each axis (nearest/stride
+ * downsample), returning the original array untouched when it already fits.
+ *
+ * Display-only and lossy: a store whose spatial plane exceeds the GPU's max 2D
+ * texture size (e.g. an 18000-wide global 0.02° grid on a device capped at
+ * 16384) would otherwise fail `createTexture` and render as all-zero. The
+ * texture still spans the same geographic extent (tiles use identity UV) and
+ * the full-resolution hover sample is registered separately by the tile
+ * loader, so geo-referencing and tooltip values are unaffected — only the
+ * rendered raster loses detail. */
+export function decimateToMaxDim(
+  data: AcceptableArray,
+  width: number,
+  height: number,
+  maxDim: number,
+): { data: AcceptableArray; width: number; height: number } {
+  if (width <= maxDim && height <= maxDim) return { data, width, height };
+  const factor = Math.ceil(Math.max(width, height) / maxDim);
+  const w = Math.ceil(width / factor);
+  const h = Math.ceil(height / factor);
+  const out = new (data.constructor as new (n: number) => AcceptableArray)(
+    w * h,
+  );
+  for (let r = 0; r < h; r++) {
+    const srcRow = Math.min(r * factor, height - 1) * width;
+    const dstRow = r * w;
+    for (let c = 0; c < w; c++) {
+      out[dstRow + c] = data[srcRow + Math.min(c * factor, width - 1)]!;
+    }
+  }
+  return { data: out, width: w, height: h };
+}
+
 export type BandInput = { key: string; data: AcceptableArray };
 
 /** Build a `MultiBandTileData` from one or more single-band typed arrays.
@@ -83,13 +126,23 @@ export function buildMultiBandTile(
   const out = new Map<string, { texture: Texture; uvTransform: UvTransform }>();
   let totalBytes = 0;
   let sampleScale = 1;
+  const maxDim = maxTextureDim(device);
   for (const { key, data: raw } of bands) {
     const format = singleBandFormat(raw);
-    const data = coerceForFormat(raw, format);
+    const coerced = coerceForFormat(raw, format);
+    // Planes wider/taller than the GPU's max texture size must be decimated
+    // or the upload silently fails and the tile renders all-zero (identity UV
+    // keeps the smaller texture spanning the full tile extent).
+    const fit = decimateToMaxDim(coerced, width, height, maxDim);
     sampleScale = sampleScaleForFormat(format);
-    const texture = device.createTexture({ data, format, width, height });
+    const texture = device.createTexture({
+      data: fit.data,
+      format,
+      width: fit.width,
+      height: fit.height,
+    });
     out.set(key, { texture, uvTransform: IDENTITY_UV });
-    totalBytes += width * height * data.BYTES_PER_ELEMENT;
+    totalBytes += fit.width * fit.height * fit.data.BYTES_PER_ELEMENT;
   }
   const result: MultiBandTileData = {
     bands: out,

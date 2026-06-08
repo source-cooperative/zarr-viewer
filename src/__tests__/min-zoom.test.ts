@@ -71,4 +71,31 @@ describe("deriveMinZoom (fetch-budget gate)", () => {
     // term, so the huge chunk doesn't push it to never-render.
     expect(deriveMinZoom(34.3, 4500, 6000, 4)).toBe(10);
   });
+
+  it("a single-chunk-plane store within budget renders at world view (z0)", () => {
+    // EEPS: 0.02° float16 whole-plane chunk (18000×6501×2 ≈ 234 MB). One tile
+    // total — zooming loads nothing new — so the per-zoom byte gate is dropped
+    // and it renders at z0 instead of the old ~z3 "zoom in to load tiles".
+    expect(
+      deriveMinZoom(0.02 * M_PER_DEG, 18000, 6501, 2, 18000, 6501),
+    ).toBe(0);
+  });
+
+  it("an over-budget single plane still gates to its resolution floor", () => {
+    // 10 m, single 50000² float32 chunk ≈ 10 GB ≫ budget: too big to auto-load
+    // at world view, so it falls through to the gate and defers the fetch —
+    // same result as the shapeless call.
+    expect(deriveMinZoom(10, 50_000, 50_000, 4, 50_000, 50_000)).toBe(12);
+    expect(deriveMinZoom(10, 50_000, 50_000, 4, 50_000, 50_000)).toBe(
+      deriveMinZoom(10, 50_000, 50_000, 4),
+    );
+  });
+
+  it("a multi-chunk store is unaffected by passing shape", () => {
+    // Chunked along latitude (chunkH < shapeH) → many tiles, not one plane, so
+    // the single-plane short-circuit must not fire: same gate as shapeless.
+    expect(deriveMinZoom(10, 256, 256, 4, 256, 4096)).toBe(
+      deriveMinZoom(10, 256, 256, 4),
+    );
+  });
 });
