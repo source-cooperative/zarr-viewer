@@ -12,6 +12,7 @@ import {
   makeTextureArrayTileLoader,
   type TextureArrayTileData,
 } from "../../../render/texture-array-pipeline";
+import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
@@ -580,6 +581,10 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       selection,
       tileSize: spatialTileSize(arr),
       minZoom: ctx.minRenderZoom,
+      // Required (with the getTileIndices patch) to keep already-loaded tiles
+      // painted below minZoom: a non-null extent disables TileLayer's own
+      // below-minZoom hide gate. See keep-min-zoom-tiles.ts.
+      extent: KEEP_MIN_ZOOM_EXTENT,
       maxRequests: 20,
       maxCacheSize: 10,
       opacity: chassisState.opacity,
