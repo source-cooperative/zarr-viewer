@@ -327,14 +327,20 @@ const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
  * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
  * lowest zoom satisfying both budgets.
  *
+ * All byte estimates are the *full atomic chunk*: spatial pixels ×
+ * `bundledChunkEls` (the product of non-spatial chunk dims) × element size,
+ * because a zarr chunk is fetched whole — a bundled `step`/`time` axis sharing
+ * the spatial chunk is pulled per tile regardless of zoom.
+ *
  * **Single-chunk-plane special case** (when `shapeW`/`shapeH` are passed and the
  * spatial chunk spans the whole plane): the store is one tile, so zooming in
- * can't reduce the fetch. If that one fetch fits {@link SINGLE_TILE_BYTE_BUDGET}
- * we render it at world view (z0) — the per-zoom byte gate is meaningless here
- * and would only hide globally-available data behind a misleading "zoom in"
- * hint. An over-budget single plane falls through to the loop below, which
- * settles on its resolution floor and defers the large fetch until the user
- * zooms in.
+ * can't reduce the fetch. If that one (full, bundled) fetch fits
+ * {@link SINGLE_TILE_BYTE_BUDGET} we render it at world view (z0) — the per-zoom
+ * byte gate is meaningless here and would only hide globally-available data
+ * behind a misleading "zoom in" hint. An over-budget single plane (whether from
+ * resolution or a heavy bundled axis, e.g. SILAM's 120-step ≈387 MB chunk)
+ * falls through to the loop below, which settles on a zoom floor and defers the
+ * large fetch until the user zooms in.
  *
  * Bytes are otherwise the *pure viewport* (not rounded up to whole chunks):
  * tiny chunks blow the request budget and gate up, where zoom can actually fix
@@ -352,6 +358,13 @@ export function deriveMinZoom(
    * short-circuit; omit to keep the pure per-zoom budget gate. */
   shapeW?: number,
   shapeH?: number,
+  /** Product of the NON-spatial chunk dims (e.g. a bundled `step`/`time` axis
+   * that shares the spatial chunk). Zarr chunks are atomic, so a tile read
+   * pulls the whole chunk including these frames — the real per-fetch volume is
+   * `spatial · bundledChunkEls · bytesPerEl`. Defaults to 1 (a pure 2-D plane).
+   * Folding it in keeps a bundle-heavy store (e.g. SILAM's 120-step plane,
+   * ≈387 MB/chunk) from being mistaken for one tiny global tile. */
+  bundledChunkEls = 1,
 ): number {
   if (!(metersPerPx > 0)) return 0;
   if (
@@ -359,7 +372,7 @@ export function deriveMinZoom(
     shapeH != null &&
     chunkW >= shapeW &&
     chunkH >= shapeH &&
-    chunkW * chunkH * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
+    chunkW * chunkH * bundledChunkEls * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
   ) {
     return 0; // one global tile; zooming loads nothing new
   }
@@ -369,7 +382,8 @@ export function deriveMinZoom(
   for (let z = 0; z <= MAX_RENDER_ZOOM; z++) {
     const d = REF_AXIS_PX * 2 ** (nativeZoom - z); // data px per axis
     const requests = Math.ceil(d / cw) * Math.ceil(d / ch);
-    const bytes = d * d * bytesPerEl;
+    // Each fetched chunk carries its full bundled (non-spatial) extent.
+    const bytes = d * d * bundledChunkEls * bytesPerEl;
     if (bytes <= BUDGET_BYTES && requests <= BUDGET_CHUNKS) return z;
   }
   return MAX_RENDER_ZOOM;
@@ -439,6 +453,11 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const chunkW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
     const shapeH = firstArr.shape[nd - 2] ?? 0;
     const shapeW = firstArr.shape[nd - 1] ?? 0;
+    // Non-spatial chunk dims share the (atomic) spatial chunk, so a tile read
+    // pulls them too — e.g. SILAM bundles 120 `step` frames per chunk.
+    const bundledChunkEls = firstArr.chunks
+      .slice(0, nd - 2)
+      .reduce((a, b) => a * b, 1);
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
       chunkW,
@@ -446,6 +465,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       bytesPerElement(firstArr.dtype),
       shapeW,
       shapeH,
+      bundledChunkEls,
     );
 
     // CF labels for every non-spatial dim (dates / durations / index).
