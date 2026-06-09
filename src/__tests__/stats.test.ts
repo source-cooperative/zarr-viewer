@@ -34,6 +34,26 @@ describe("buildBandStats", () => {
     expect(buildBandStats(values, null)).toBeNull();
   });
 
+  it("returns a degenerate stat for constant data (not null)", () => {
+    // Regression: a snow field sampled entirely as 0 must not lock the rescale
+    // UI. Constant valid data is a stat with min === max, not "no data".
+    const values = new Float32Array(500).fill(0);
+    const stats = buildBandStats(values, null);
+    expect(stats).not.toBeNull();
+    expect(stats!.min).toBe(0);
+    expect(stats!.max).toBe(0);
+    const total = stats!.histogram.reduce((a, b) => a + b, 0);
+    expect(total).toBe(500);
+    // Percentiles of a zero-width range collapse to the constant.
+    expect(percentileFromHistogram(stats!, 0.02)).toBe(0);
+    expect(percentileFromHistogram(stats!, 0.98)).toBe(0);
+  });
+
+  it("treats a constant equal to nodata as no data (null)", () => {
+    const values = new Float32Array(10).fill(-9999);
+    expect(buildBandStats(values, -9999)).toBeNull();
+  });
+
   it("percentileFromHistogram brackets the 50th percentile", () => {
     const values = new Float32Array(1000);
     for (let i = 0; i < values.length; i++) values[i] = i;
