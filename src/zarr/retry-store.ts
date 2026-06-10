@@ -1,6 +1,9 @@
 import type { AsyncReadable } from "zarrita";
 import { defineStoreExtension, isZarritaError } from "zarrita";
+import { createLogger } from "../log";
 import { isAbortError } from "./tile-error";
+
+const log = createLogger("retry");
 
 /** Parse an HTTP status code out of an error message. Recognizes both
  * icechunk's `"HTTP 503 … for <url>"` and zarrita FetchStore's
@@ -138,6 +141,7 @@ async function retry<T>(
   fn: () => Promise<T>,
   signal: AbortSignal | undefined,
   cfg: Required<RetryOptions>,
+  key: string,
 ): Promise<T> {
   let attempts = 0;
   for (;;) {
@@ -148,8 +152,19 @@ async function retry<T>(
       attempts++;
       if (isAbortError(err)) throw err;
       if (!isTransientError(err)) throw err;
-      if (attempts >= cfg.maxAttempts) throw err;
-      await sleep(backoffDelay(attempts - 1, cfg), signal);
+      if (attempts >= cfg.maxAttempts) {
+        log.debug(
+          `gave up on ${key} after ${attempts} attempt(s)`,
+          err instanceof Error ? err.message : err,
+        );
+        throw err;
+      }
+      const delay = backoffDelay(attempts - 1, cfg);
+      log.debug(
+        `retry ${key} (attempt ${attempts}/${cfg.maxAttempts}) in ${Math.round(delay)}ms`,
+        err instanceof Error ? err.message : err,
+      );
+      await sleep(delay, signal);
     }
   }
 }
@@ -170,6 +185,7 @@ export const withRetry = defineStoreExtension(
           () => boundGet(key, options),
           options?.signal,
           cfg,
+          key,
         )) as AsyncReadable["get"],
     };
     if (store.getRange) {
@@ -179,6 +195,7 @@ export const withRetry = defineStoreExtension(
           () => boundGetRange(key, range, options),
           options?.signal,
           cfg,
+          key,
         )) as NonNullable<AsyncReadable["getRange"]>;
     }
     return overrides;

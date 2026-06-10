@@ -13,8 +13,11 @@ import {
   type TextureArrayTileData,
 } from "../../../render/texture-array-pipeline";
 import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
+import { createLogger } from "../../../log";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
+
+const log = createLogger("profile");
 import type { ZarrProfile } from "../../profile";
 import { buildDimLabel } from "./cf-coords";
 import { ScalarGridControls } from "./controls";
@@ -141,6 +144,11 @@ async function enumerateVariables(
         .filter((e) => e.kind === "array")
         .map((e) => e.path.replace(/^\/+/, ""))
     : CANDIDATE_VARIABLES;
+  log.debug(
+    probing
+      ? `enumerate: no consolidated metadata, probing ${paths.length} candidate names`
+      : `enumerate: ${paths.length} array node(s) from consolidated metadata`,
+  );
   const out: ScalarGridVariable[] = [];
   for (const rest of paths) {
     if (signal.aborted) return out;
@@ -151,9 +159,17 @@ async function enumerateVariables(
     } catch {
       continue; // probed candidate doesn't exist in this store
     }
-    if (!isNumericDtype(arr.dtype)) continue;
+    if (!isNumericDtype(arr.dtype)) {
+      log.debug(`enumerate: skip "${rest}" (non-numeric dtype ${arr.dtype})`);
+      continue;
+    }
     const pair = spatialPair(arr.dimensionNames);
-    if (!pair) continue;
+    if (!pair) {
+      log.debug(
+        `enumerate: skip "${rest}" (no lat/lon pair in [${arr.dimensionNames?.join(",")}])`,
+      );
+      continue;
+    }
     arrays.set(rest, arr);
     const dimNames = arr.dimensionNames!;
     const leading = dimNames.slice(0, dimNames.length - 2);
@@ -180,9 +196,20 @@ async function enumerateVariables(
       dims,
       textureDim: pickTextureDim(arr),
     });
+    const v = out[out.length - 1]!;
+    log.debug(`enumerate: variable "${rest}"`, {
+      dtype: arr.dtype,
+      shape: arr.shape,
+      chunks: arr.chunks,
+      fillValue: v.fillValue,
+      scaleFactor: v.scaleFactor,
+      addOffset: v.addOffset,
+      textureDim: v.textureDim,
+    });
     if (probing) break; // can't list further; one variable is enough
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
+  log.info(`enumerate: ${out.length} renderable variable(s)`);
   return out;
 }
 
@@ -262,6 +289,15 @@ async function synthesizeSpatialAttrs(
     lon1: Number(lon[1]),
     lonLast: Number(lon[lon.length - 1]),
     count: lon.length,
+  });
+  log.debug(`synthesized grid from ${latName}/${lonName}`, {
+    latLen: lat.length,
+    lonLen: lon.length,
+    stepLat,
+    originLon: frame.originLon,
+    stepLon: frame.stepLon,
+    rollLongitude: frame.rollLongitude,
+    isGlobal: frame.isGlobal,
   });
   return {
     attrs: {
@@ -410,6 +446,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
   }),
 
   async prepare(url, signal) {
+    const done = log.time("scalar-grid prepare", "info");
     const opened = await openV3Group(url, { consolidated: true });
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(opened.group, signal, arrays);
@@ -467,6 +504,18 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       shapeH,
       bundledChunkEls,
     );
+    log.info(
+      `prepared "${first.name}" ${firstArr.dtype} [${firstArr.shape.join(",")}] ` +
+        `${metadataSource}, metersPerPx=${Math.round(metersPerPx)}, minRenderZoom=${minRenderZoom}`,
+    );
+    log.debug("prepare detail", {
+      variables: variables.length,
+      chunks: firstArr.chunks,
+      bundledChunkEls,
+      rollLongitude,
+      projCode,
+      textureDim: first.textureDim,
+    });
 
     // CF labels for every non-spatial dim (dates / durations / index).
     const dimSize = new Map<string, number>();
@@ -478,6 +527,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       dimLabel[name] = await buildDimLabel(opened.group, name, size);
     }
 
+    done();
     return {
       url,
       group: opened.group,

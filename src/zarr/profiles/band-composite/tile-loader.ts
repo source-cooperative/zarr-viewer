@@ -2,8 +2,11 @@ import type { MinimalTileData } from "@developmentseed/deck.gl-raster";
 import type { GetTileDataOptions } from "@developmentseed/deck.gl-zarr";
 import type { Texture } from "@luma.gl/core";
 import * as zarr from "zarrita";
+import { createLogger } from "../../../log";
 import { reportTileError, reportTileResult } from "../../tile-error";
 import { NUM_BANDS } from "./constants";
+
+const log = createLogger("tiles");
 
 export type BandCompositeTileData = MinimalTileData & {
   /** r8sint Texture2DArray; depth = NUM_BANDS. Layer `i` = band `i`. */
@@ -19,6 +22,7 @@ export async function getBandCompositeTileData(
   options: GetTileDataOptions,
 ): Promise<BandCompositeTileData> {
   const { device, sliceSpec, width, height, signal } = options;
+  const t0 = log.isEnabled("debug") ? performance.now() : 0;
   const chunk = await (async () => {
     try {
       return await zarr.get(arr, sliceSpec, { signal });
@@ -26,11 +30,17 @@ export async function getBandCompositeTileData(
       // Surface persistent (non-abort) tile failures; rethrow so deck.gl
       // leaves a gap rather than rendering stale data.
       reportTileError(err);
+      log.debug(`tile ${options.x},${options.y},${options.z} failed`, err);
       throw err;
     }
   })();
   reportTileResult(true);
   const { data } = chunk;
+  if (log.isEnabled("debug")) {
+    log.debug(
+      `tile ${options.x},${options.y},${options.z} ${data.byteLength}B in ${Math.round(performance.now() - t0)}ms`,
+    );
+  }
 
   if (chunk.shape.length !== 3) {
     throw new Error(

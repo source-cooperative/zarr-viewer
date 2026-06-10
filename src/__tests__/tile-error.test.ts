@@ -79,6 +79,22 @@ describe("installConsoleAbortFilter", () => {
     }
   });
 
+  it("does not swallow the logger's prefixed 2-arg error output", () => {
+    // createLogger.error emits `console.error("[zarr:ns]", err)` — a 2-arg call,
+    // so the single-arg AbortError filter must not drop it.
+    const original = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => calls.push(args);
+    try {
+      installConsoleAbortFilter();
+      const err = new Error("boom");
+      console.error("[zarr:app]", "prepare failed", err);
+      expect(calls).toEqual([["[zarr:app]", "prepare failed", err]]);
+    } finally {
+      console.error = original;
+    }
+  });
+
   it("swallows the luma.gl 'Binding sampler not set' warning", () => {
     const original = console.warn;
     const calls: unknown[][] = [];

@@ -26,6 +26,7 @@ import { FullscreenButton } from "./components/FullscreenButton";
 import { StructurePanel } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
+import { createLogger } from "./log";
 import { installKeepMinZoomTiles } from "./render/keep-min-zoom-tiles";
 import type { AutoStats } from "./render/stats";
 import { subscribeTileHealth } from "./zarr/tile-error";
@@ -42,6 +43,8 @@ import {
   type CodecSummary,
   type StructureProfileSummary,
 } from "./zarr/structure";
+
+const log = createLogger("app");
 
 // Keep already-loaded tiles painted when zoomed out past a layer's minZoom
 // (deck.gl-zarr would otherwise blank the map below the threshold).
@@ -204,10 +207,12 @@ export default function App() {
     setError(null);
     if (!state.url || !profile) return;
     const ctrl = new AbortController();
+    log.info(`load: profile "${profile.id}" url=${state.url}`);
     (async () => {
       try {
         const ctx = await profile.prepare(state.url!, ctrl.signal);
         if (ctrl.signal.aborted) return;
+        log.info("profile context ready");
         setProfileCtx(ctx);
         // Skip the profile's auto-fit when the URL has explicit view
         // params — the user's view wins.
@@ -224,7 +229,7 @@ export default function App() {
         }
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.error("profile.prepare failed", err);
+        log.error("profile.prepare failed", err);
         setError(humanizeError(err));
       }
     })();
@@ -290,7 +295,7 @@ export default function App() {
         if (!ctrl.signal.aborted) setNode(resolved);
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.error("profile.resolveNode failed", err);
+        log.error("profile.resolveNode failed", err);
         setError(humanizeError(err));
       }
     })();
@@ -312,10 +317,18 @@ export default function App() {
           state: profileState,
           signal: ctrl.signal,
         });
-        if (!ctrl.signal.aborted) setAutoStats(stats);
+        if (!ctrl.signal.aborted) {
+          const g = stats?.global;
+          log.debug(
+            g
+              ? `autoStats range [${g.min}, ${g.max}]`
+              : "autoStats: none (no finite samples)",
+          );
+          setAutoStats(stats);
+        }
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.warn("computeAutoStats failed", err);
+        log.warn("computeAutoStats failed", err);
       }
     })();
     return () => ctrl.abort();
@@ -329,6 +342,7 @@ export default function App() {
   // it; a successful tile clears it (and re-arms the dismissable notice).
   useEffect(() => {
     return subscribeTileHealth((degraded) => {
+      log.info(degraded ? "tiles degraded (repeated failures)" : "tiles recovered");
       setTilesDegraded(degraded);
       if (!degraded) setTileNoticeDismissed(false);
     });
