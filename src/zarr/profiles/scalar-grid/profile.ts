@@ -348,9 +348,12 @@ const BUDGET_CHUNKS = 16;
 const MAX_RENDER_ZOOM = 24;
 /** A single-chunk-plane store (the spatial chunk spans the whole lat/lon
  * shape) is exactly one tile; zooming in never loads anything new. Render it at
- * world view when that one fetch is at most this many bytes. ~256 MB admits
- * EEPS-class global float16 grids (18000×6501×2 ≈ 234 MB) while still deferring
- * ~½ GB+ planes via the zoom gate. */
+ * world view when its *spatial* (displayed) plane is at most this many bytes.
+ * ~256 MB admits EEPS-class global float16 grids (18000×6501×2 ≈ 234 MB) while
+ * still deferring a single plane whose own spatial footprint is enormous
+ * (e.g. a 50000² high-res chunk). Bundled non-spatial frames (a step/time axis
+ * sharing the chunk) are excluded here — they load regardless of zoom, so a
+ * coarse global grid like SILAM (0.2°/120-step) still renders at z0. */
 const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
 
 /** Lowest web-mercator zoom to render at, modelling the data a zoom-out pulls.
@@ -364,20 +367,21 @@ const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
  * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
  * lowest zoom satisfying both budgets.
  *
- * All byte estimates are the *full atomic chunk*: spatial pixels ×
+ * The per-zoom byte estimate is the *full atomic chunk*: spatial pixels ×
  * `bundledChunkEls` (the product of non-spatial chunk dims) × element size,
  * because a zarr chunk is fetched whole — a bundled `step`/`time` axis sharing
- * the spatial chunk is pulled per tile regardless of zoom.
+ * the spatial chunk is pulled per tile regardless of zoom. This matters for
+ * multi-chunk-spatial stores, where zooming in genuinely reduces the chunk
+ * count.
  *
  * **Single-chunk-plane special case** (when `shapeW`/`shapeH` are passed and the
  * spatial chunk spans the whole plane): the store is one tile, so zooming in
- * can't reduce the fetch. If that one (full, bundled) fetch fits
- * {@link SINGLE_TILE_BYTE_BUDGET} we render it at world view (z0) — the per-zoom
- * byte gate is meaningless here and would only hide globally-available data
- * behind a misleading "zoom in" hint. An over-budget single plane (whether from
- * resolution or a heavy bundled axis, e.g. SILAM's 120-step ≈387 MB chunk)
- * falls through to the loop below, which settles on a zoom floor and defers the
- * large fetch until the user zooms in.
+ * can't reduce the fetch — gating it is pure friction. We render it at world
+ * view (z0) when its *spatial* footprint fits {@link SINGLE_TILE_BYTE_BUDGET},
+ * deliberately ignoring bundled frames (only one shows at a time, and they load
+ * regardless of zoom). So a coarse global grid like SILAM (0.2°/120-step,
+ * spatial plane ≈3 MB) renders at z0; only a single plane whose own spatial
+ * footprint is huge (e.g. a 50000² high-res chunk) falls through to the loop.
  *
  * Bytes are otherwise the *pure viewport* (not rounded up to whole chunks):
  * tiny chunks blow the request budget and gate up, where zoom can actually fix
@@ -397,10 +401,10 @@ export function deriveMinZoom(
   shapeH?: number,
   /** Product of the NON-spatial chunk dims (e.g. a bundled `step`/`time` axis
    * that shares the spatial chunk). Zarr chunks are atomic, so a tile read
-   * pulls the whole chunk including these frames — the real per-fetch volume is
-   * `spatial · bundledChunkEls · bytesPerEl`. Defaults to 1 (a pure 2-D plane).
-   * Folding it in keeps a bundle-heavy store (e.g. SILAM's 120-step plane,
-   * ≈387 MB/chunk) from being mistaken for one tiny global tile. */
+   * pulls the whole chunk including these frames. Applied in the per-zoom loop
+   * (multi-chunk-spatial stores) but NOT to the single-chunk-plane gate, where
+   * zooming can't reduce the fetch anyway — see {@link SINGLE_TILE_BYTE_BUDGET}.
+   * Defaults to 1 (a pure 2-D plane). */
   bundledChunkEls = 1,
 ): number {
   if (!(metersPerPx > 0)) return 0;
@@ -409,7 +413,11 @@ export function deriveMinZoom(
     shapeH != null &&
     chunkW >= shapeW &&
     chunkH >= shapeH &&
-    chunkW * chunkH * bundledChunkEls * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
+    // Judge the SPATIAL (displayed) footprint, NOT the bundled chunk size: a
+    // coarse global grid is a fine world-view tile even if its chunk bundles
+    // many step/time frames (only one frame shows at a time; bundled frames
+    // load regardless of zoom, so gating on them just hides global data).
+    chunkW * chunkH * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
   ) {
     return 0; // one global tile; zooming loads nothing new
   }

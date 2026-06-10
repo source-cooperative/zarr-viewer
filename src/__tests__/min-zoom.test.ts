@@ -99,29 +99,28 @@ describe("deriveMinZoom (fetch-budget gate)", () => {
     );
   });
 
-  it("a bundled non-spatial axis defers an otherwise-free single plane", () => {
-    // SILAM: 0.2° float16 whole-plane chunk, but the chunk bundles 120 `step`
-    // frames (chunks [1,120,897,1800]) ⇒ ~387 MB per tile, not the 3.2 MB the
-    // spatial chunk implies. The bundled byte budget pushes it off the z0
-    // short-circuit to a zoom floor (the "zoom in to load tiles" hint).
-    expect(
-      deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 120),
-    ).toBe(4);
+  it("a global single-chunk plane renders at z0 regardless of bundled frames", () => {
+    // SILAM: 0.2° float16 whole-plane chunk that bundles 120 `step` frames
+    // (chunks [1,120,897,1800]). The full chunk is ~387 MB, but it's global and
+    // a single spatial chunk — zooming can't reduce the fetch, so it must render
+    // at world view, NOT behind a "zoom in to load tiles" hint. The gate judges
+    // the spatial plane (~3.2 MB), so the bundled step count doesn't matter.
+    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 120)).toBe(0);
+    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 1)).toBe(0);
   });
 
-  it("bundledChunkEls=1 matches the omitted default, and >1 gates harder", () => {
-    const omitted = deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897);
-    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 1)).toBe(
-      omitted,
-    );
-    expect(omitted).toBe(0); // the plane alone (3.2 MB) is free at world view
-    expect(
-      deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 120),
-    ).toBeGreaterThan(omitted);
+  it("a single plane with a huge spatial footprint still defers", () => {
+    // 10 m, single 50000² float32 chunk ≈ 10 GB of *spatial* data — too big to
+    // auto-load at world view, so it gates to its resolution floor (unchanged).
+    expect(deriveMinZoom(10, 50_000, 50_000, 4, 50_000, 50_000)).toBe(12);
   });
 
-  it("a small bundled single plane still renders at world view", () => {
-    // 1° plane (360×180) × 100 bundled frames × 2 B ≈ 13 MB ≤ 256 MB budget.
-    expect(deriveMinZoom(M_PER_DEG, 360, 180, 2, 360, 180, 100)).toBe(0);
+  it("bundled frames raise the gate for MULTI-chunk-spatial stores (loop path)", () => {
+    // No single-plane short-circuit (shape omitted → per-zoom loop). Each
+    // fetched chunk carries its bundled frames, so a bundled axis multiplies the
+    // per-zoom bytes and pushes the floor up vs. the unbundled gate.
+    const unbundled = deriveMinZoom(10, 256, 256, 4);
+    const bundled = deriveMinZoom(10, 256, 256, 4, undefined, undefined, 16);
+    expect(bundled).toBeGreaterThan(unbundled);
   });
 });
