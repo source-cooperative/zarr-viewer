@@ -1,20 +1,26 @@
+import { isZarritaError } from "zarrita";
+import { isTransientError, parseHttpStatus } from "../zarr/retry-store";
+
 type Props = {
   message: string | null;
   onDismiss: () => void;
+  /** Visual severity. `error` (default) is the red fatal-load toast; `warn`
+   * is an amber, non-fatal notice (e.g. tiles loading slowly). */
+  intent?: "error" | "warn";
 };
 
-export function Toast({ message, onDismiss }: Props) {
+export function Toast({ message, onDismiss, intent = "error" }: Props) {
   if (!message) return null;
   return (
     <div
-      role="alert"
+      role={intent === "error" ? "alert" : "status"}
       className="panel"
       style={{
         position: "absolute",
         bottom: 24,
         left: "50%",
         transform: "translateX(-50%)",
-        background: "#7a1a1a",
+        background: intent === "error" ? "#7a1a1a" : "#6b4e16",
         color: "#ffffff",
         padding: "10px 14px",
         borderRadius: "var(--radius)",
@@ -41,21 +47,41 @@ export function Toast({ message, onDismiss }: Props) {
   );
 }
 
-/** Map a thrown error / rejected fetch to a one-line user-facing message. */
+/** Map a thrown error / rejected fetch to a one-line user-facing message.
+ * Ordered most-specific first; a slow/flaky network (the common failure on a
+ * weak link) is distinguished from a genuine 404 so we don't wrongly tell the
+ * user to fix a URL that's actually reachable. */
 export function humanizeError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
-  if (lower.includes("404") || lower.includes("not found")) {
-    return "The Zarr store URL returned 404. Make sure the URL points to the store root (no trailing /zarr.json) — for source.coop datasets the byte-serving host is data.source.coop.";
+
+  // Transient network / server failure that survived the store-layer retries.
+  if (isTransientError(err)) {
+    return "Couldn't reach the data after several retries — your connection looks slow or unstable. Check your network and try again. (This store fetches a whole chunk per tile, so a weak link can stall.)";
   }
+  // Genuine missing store/key (not a transient blip).
   if (
-    lower.includes("cors") ||
-    lower.includes("failed to fetch") ||
-    lower.includes("networkerror")
+    isZarritaError(err, "NotFoundError") ||
+    (err as { name?: unknown })?.name === "NotFoundError" ||
+    parseHttpStatus(msg) === 404 ||
+    lower.includes("not found")
   ) {
-    return "Could not fetch the Zarr store. Check the URL — for source.coop datasets the byte-serving host is data.source.coop; if that's already what you used, the host may be blocking cross-origin requests.";
+    return "No Zarr store found at that URL (404). Check the path points to the store root (no trailing /zarr.json) — for source.coop datasets the byte-serving host is data.source.coop.";
   }
-  if (lower.includes("zarr") || lower.includes("metadata")) {
+  // CORS is indistinguishable from a hard network failure in fetch(), so only
+  // an explicit CORS token lands here (plain network failures are transient).
+  if (lower.includes("cors")) {
+    return "The host blocked this cross-origin request (CORS). For source.coop datasets use the data.source.coop byte-serving host.";
+  }
+  // Store opened but the viewer can't render it.
+  if (
+    lower.includes("no regular lat/lon gridded variables found") ||
+    isZarritaError(err, "UnsupportedError", "UnknownCodecError") ||
+    lower.includes("unsupported")
+  ) {
+    return "This store opened, but the viewer can't render it: no regular lat/lon gridded variable (it may use an unstructured mesh, a projected grid, or an unsupported data type).";
+  }
+  if (isZarritaError(err) || lower.includes("zarr") || lower.includes("metadata")) {
     return `Could not open the Zarr store: ${msg}`;
   }
   return `Could not load the Zarr store: ${msg}`;

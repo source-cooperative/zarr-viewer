@@ -26,9 +26,13 @@ import { FullscreenButton } from "./components/FullscreenButton";
 import { StructurePanel } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
+import { createLogger } from "./log";
 import { installKeepMinZoomTiles } from "./render/keep-min-zoom-tiles";
 import type { AutoStats } from "./render/stats";
+import { subscribeTileHealth } from "./zarr/tile-error";
 import { detectProfile, normalizeStoreUrl } from "./source";
+import { MultiscaleStoreError } from "./zarr/multiscale";
+import { getProfile } from "./zarr/profiles";
 import {
   buildExampleLoadPatch,
   type ExampleLoadRequest,
@@ -41,6 +45,8 @@ import {
   type CodecSummary,
   type StructureProfileSummary,
 } from "./zarr/structure";
+
+const log = createLogger("app");
 
 // Keep already-loaded tiles painted when zoomed out past a layer's minZoom
 // (deck.gl-zarr would otherwise blank the map below the threshold).
@@ -77,6 +83,11 @@ export default function App() {
   const [autoStats, setAutoStats] = useState<AutoStats | null>(null);
   const [codecSummary, setCodecSummary] = useState<CodecSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True when tiles are repeatedly failing to load (non-abort). Drives a
+  // non-blocking "loading slowly" notice; reset when a tile next succeeds or
+  // the user dismisses it.
+  const [tilesDegraded, setTilesDegraded] = useState(false);
+  const [tileNoticeDismissed, setTileNoticeDismissed] = useState(false);
   const [firstSymbolId, setFirstSymbolId] = useState<string | undefined>();
   // True while a programmatic flyTo animation is in flight. The layer
   // `useMemo` returns null when set, so tiles aren't requested for the
@@ -111,10 +122,21 @@ export default function App() {
     setFirstSymbolId(undefined);
   }, [state.basemap]);
 
-  const profile: AnyZarrProfile | null = useMemo(
-    () => detectProfile(state.url, state.profileId),
-    [state.url, state.profileId],
+  // Profile selection. Default = scalar-grid; if its prepare throws
+  // `MultiscaleStoreError` (a multiscale pyramid), the prepare effect below
+  // records the switch in `autoProfile`, keyed to the url so a stale value
+  // never leaks onto a different store.
+  const [autoProfile, setAutoProfile] = useState<{ url: string; id: string } | null>(
+    null,
   );
+  const profile: AnyZarrProfile | null = useMemo(() => {
+    if (state.profileId) return detectProfile(state.url, state.profileId);
+    if (!state.url) return null;
+    if (autoProfile && autoProfile.url === state.url) {
+      return getProfile(autoProfile.id);
+    }
+    return detectProfile(state.url, null); // scalar-grid default
+  }, [state.url, state.profileId, autoProfile]);
 
   // Re-derive profile state on every render from URL params (defaults
   // come from profile.initialState; URL overrides win).
@@ -198,10 +220,12 @@ export default function App() {
     setError(null);
     if (!state.url || !profile) return;
     const ctrl = new AbortController();
+    log.info(`load: profile "${profile.id}" url=${state.url}`);
     (async () => {
       try {
         const ctx = await profile.prepare(state.url!, ctrl.signal);
         if (ctrl.signal.aborted) return;
+        log.info("profile context ready");
         setProfileCtx(ctx);
         // Skip the profile's auto-fit when the URL has explicit view
         // params — the user's view wins.
@@ -218,7 +242,16 @@ export default function App() {
         }
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.error("profile.prepare failed", err);
+        if (err instanceof MultiscaleStoreError) {
+          // The default profile detected a multiscale pyramid → switch to the
+          // multiscale-grid profile (which re-runs prepare). No error toast.
+          if (!state.profileId && state.url) {
+            log.info("switching to multiscale-grid profile");
+            setAutoProfile({ url: state.url, id: "multiscale-grid" });
+          }
+          return;
+        }
+        log.error("profile.prepare failed", err);
         setError(humanizeError(err));
       }
     })();
@@ -284,7 +317,7 @@ export default function App() {
         if (!ctrl.signal.aborted) setNode(resolved);
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.error("profile.resolveNode failed", err);
+        log.error("profile.resolveNode failed", err);
         setError(humanizeError(err));
       }
     })();
@@ -306,10 +339,18 @@ export default function App() {
           state: profileState,
           signal: ctrl.signal,
         });
-        if (!ctrl.signal.aborted) setAutoStats(stats);
+        if (!ctrl.signal.aborted) {
+          const g = stats?.global;
+          log.debug(
+            g
+              ? `autoStats range [${g.min}, ${g.max}]`
+              : "autoStats: none (no finite samples)",
+          );
+          setAutoStats(stats);
+        }
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        console.warn("computeAutoStats failed", err);
+        log.warn("computeAutoStats failed", err);
       }
     })();
     return () => ctrl.abort();
@@ -317,6 +358,17 @@ export default function App() {
     // stats recompute only on those changes, not on every dim-slider tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, profileCtx, statsDepsKey]);
+
+  // Surface repeated (non-abort) tile-load failures as a non-blocking notice.
+  // The counter ignores AbortErrors, so routine pan/zoom pruning never trips
+  // it; a successful tile clears it (and re-arms the dismissable notice).
+  useEffect(() => {
+    return subscribeTileHealth((degraded) => {
+      log.info(degraded ? "tiles degraded (repeated failures)" : "tiles recovered");
+      setTilesDegraded(degraded);
+      if (!degraded) setTileNoticeDismissed(false);
+    });
+  }, []);
 
   // Decode + upload the colormap sprite once the device is ready (only
   // needed for single-band/colormapped profiles).
@@ -617,6 +669,17 @@ export default function App() {
       )}
 
       <Toast message={error} onDismiss={() => setError(null)} />
+
+      {/* Non-fatal notice; the red error toast (above) takes precedence. */}
+      <Toast
+        intent="warn"
+        message={
+          tilesDegraded && !tileNoticeDismissed && !error
+            ? "Tiles are loading slowly or failing — your connection may be slow."
+            : null
+        }
+        onDismiss={() => setTileNoticeDismissed(true)}
+      />
 
       <FullscreenButton />
 

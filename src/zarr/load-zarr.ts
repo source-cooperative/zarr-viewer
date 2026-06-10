@@ -6,6 +6,10 @@ import {
   SpecVersion,
 } from "icechunk-js";
 import * as zarr from "zarrita";
+import { createLogger } from "../log";
+import { withRetry } from "./retry-store";
+
+const log = createLogger("store");
 
 export type ConsolidatedStore = zarr.Readable & {
   contents: () => { path: string; kind: "array" | "group" }[];
@@ -60,8 +64,10 @@ async function hasIcechunkRepoConfig(url: string): Promise<boolean> {
   const base = url.split("?")[0]!.replace(/\/+$/, "");
   try {
     const res = await fetch(`${base}/repo`, { method: "HEAD" });
+    log.debug(`icechunk repo probe ${base}/repo → ${res.status}`);
     return res.ok;
-  } catch {
+  } catch (err) {
+    log.debug(`icechunk repo probe ${base}/repo failed`, err);
     return false;
   }
 }
@@ -73,7 +79,10 @@ async function hasIcechunkRepoConfig(url: string): Promise<boolean> {
  * same `zarr.open.v3` / `ZarrLayer` path as a plain store. Unlike
  * `FetchStore`, it must NOT be wrapped with `withRangeCoalescing` (that
  * would hide its `listNodes`/`session` methods) — coalescing is opted into
- * via the `withRangeCoalescing` option instead.
+ * via the `withRangeCoalescing` option instead. ({@link withRetry} IS safe to
+ * wrap it with: that store-extension proxy overrides only `get`/`getRange`
+ * and delegates everything else — `listNodes`/`session`/`contents`/the
+ * attached `icechunk` info — to the inner store.)
  *
  * `Repository.open` auto-detects the v1/v2 format. Ref listing is guarded:
  * over plain HTTP, v1 repos can't enumerate branches/tags, so those degrade
@@ -104,6 +113,14 @@ async function openIcechunk(
     branches,
     tags,
   };
+  log.info(
+    `icechunk ${info.specVersion} branch="${info.branch}" snapshot=${info.snapshotId}`,
+  );
+  log.debug("icechunk refs", {
+    branches: branches.length,
+    tags: tags.length,
+    flushedAt: info.flushedAt,
+  });
   Object.assign(ice, { icechunk: info });
 
   if (consolidated) {
@@ -119,8 +136,12 @@ async function openIcechunk(
     });
   }
 
-  const group = await zarr.open.v3(ice as zarr.Readable, { kind: "group" });
-  return { group, store: ice as zarr.Readable };
+  // Retry transient network/server failures (flaky links, source.coop
+  // throttling) on every chunk/metadata read. Wraps AFTER the `contents()` /
+  // `icechunk` props are attached so the proxy reflects them through.
+  const store = withRetry(ice as zarr.AsyncReadable);
+  const group = await zarr.open.v3(store, { kind: "group" });
+  return { group, store };
 }
 
 /** Open a Zarr v3 store at `url`. Routes `.icechunk` URLs to
@@ -152,23 +173,34 @@ export async function openV3Group(
   // Icechunk repos whose name doesn't end in `.icechunk` (e.g. source.coop's
   // `*_icechunk` / `/icechunk/` datasets). Plain Zarr stores cost one extra
   // HEAD (404) before falling through.
+  const done = log.time(`open ${url}`, "info");
   if (isIcechunkUrl(url) || (await hasIcechunkRepoConfig(url))) {
-    return openIcechunk(url, options.consolidated ?? false);
+    log.info(`open (icechunk) ${url}`);
+    const opened = await openIcechunk(url, options.consolidated ?? false);
+    done();
+    return opened;
   }
+  log.info(`open (fetch) ${url}`);
   const raw = new zarr.FetchStore(url, { useSuffixRequest: true });
   const coalesced = zarr.withRangeCoalescing(raw);
-  let store: zarr.Readable = coalesced;
+  // Retry transient failures outside coalescing so a coalesced group-read is
+  // retried as one unit (and consolidated-metadata reads inherit it too).
+  const retrying = withRetry(coalesced);
+  let store: zarr.Readable = retrying;
   if (options.consolidated) {
     try {
-      store = await zarr.withConsolidatedMetadata(coalesced, { format: "v3" });
+      store = await zarr.withConsolidatedMetadata(retrying, { format: "v3" });
+      log.debug("consolidated metadata: hit");
     } catch {
       // Store ships no consolidated metadata (e.g. FireSmoke). Fall back to
-      // the plain store; callers that need to enumerate nodes detect the
-      // missing `contents()` via `asConsolidated` and probe instead.
-      store = coalesced;
+      // the plain (still retrying) store; callers that need to enumerate
+      // nodes detect the missing `contents()` via `asConsolidated` and probe.
+      store = retrying;
+      log.debug("consolidated metadata: miss (will probe variables)");
     }
   }
   const group = await zarr.open.v3(store, { kind: "group" });
+  done();
   return { group, store };
 }
 

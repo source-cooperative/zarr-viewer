@@ -32,25 +32,39 @@ export function percentileFromHistogram(stats: BandStats, p: number): number {
   return stats.max;
 }
 
-/** Single-pass min/max + histogram over an iterable of sample values.
- * Two-pass: first to find min/max (skipping nodata + non-finite), then to
- * bin. Returns null when the iterable produces no valid samples. */
+/** Two-pass min/max + histogram over an iterable of sample values: first to
+ * find min/max (skipping nodata + non-finite), then to bin.
+ *
+ * Returns null ONLY when there are no valid samples. Constant data (all valid
+ * values equal — e.g. a snow field that's 0 everywhere it was sampled) yields a
+ * degenerate `min === max` stat with every count in the first bin, NOT null:
+ * returning null there is indistinguishable from "no data" and permanently
+ * locks the rescale UI on "Adjust once data statistics load." Consumers handle
+ * the zero-width range (`percentileFromHistogram` returns the constant; the
+ * rescale editor pads the slider bounds). */
 export function buildBandStats(
   values: ArrayLike<number>,
   nodata: number | null,
 ): BandStats | null {
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-  let any = false;
+  let count = 0;
   for (let i = 0; i < values.length; i++) {
     const v = values[i] as number;
     if (nodata !== null && v === nodata) continue;
     if (!Number.isFinite(v)) continue;
     if (v < min) min = v;
     if (v > max) max = v;
-    any = true;
+    count++;
   }
-  if (!any || !(min < max)) return null;
+  if (count === 0) return null;
+  if (!(min < max)) {
+    // Constant data: a valid but zero-width range. One filled bin keeps the
+    // stat usable downstream instead of being mistaken for "no data".
+    const histogram = new Array<number>(HISTOGRAM_BINS).fill(0);
+    histogram[0] = count;
+    return { min, max, histogram };
+  }
   const histogram = new Array<number>(HISTOGRAM_BINS).fill(0);
   const scale = HISTOGRAM_BINS / (max - min);
   for (let i = 0; i < values.length; i++) {

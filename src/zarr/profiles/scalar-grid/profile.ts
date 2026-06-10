@@ -13,8 +13,12 @@ import {
   type TextureArrayTileData,
 } from "../../../render/texture-array-pipeline";
 import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
+import { createLogger } from "../../../log";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
+import { MultiscaleStoreError, parseMultiscaleDatasets } from "../../multiscale";
+
+const log = createLogger("profile");
 import type { ZarrProfile } from "../../profile";
 import { buildDimLabel } from "./cf-coords";
 import { ScalarGridControls } from "./controls";
@@ -141,6 +145,11 @@ async function enumerateVariables(
         .filter((e) => e.kind === "array")
         .map((e) => e.path.replace(/^\/+/, ""))
     : CANDIDATE_VARIABLES;
+  log.debug(
+    probing
+      ? `enumerate: no consolidated metadata, probing ${paths.length} candidate names`
+      : `enumerate: ${paths.length} array node(s) from consolidated metadata`,
+  );
   const out: ScalarGridVariable[] = [];
   for (const rest of paths) {
     if (signal.aborted) return out;
@@ -151,9 +160,17 @@ async function enumerateVariables(
     } catch {
       continue; // probed candidate doesn't exist in this store
     }
-    if (!isNumericDtype(arr.dtype)) continue;
+    if (!isNumericDtype(arr.dtype)) {
+      log.debug(`enumerate: skip "${rest}" (non-numeric dtype ${arr.dtype})`);
+      continue;
+    }
     const pair = spatialPair(arr.dimensionNames);
-    if (!pair) continue;
+    if (!pair) {
+      log.debug(
+        `enumerate: skip "${rest}" (no lat/lon pair in [${arr.dimensionNames?.join(",")}])`,
+      );
+      continue;
+    }
     arrays.set(rest, arr);
     const dimNames = arr.dimensionNames!;
     const leading = dimNames.slice(0, dimNames.length - 2);
@@ -180,9 +197,20 @@ async function enumerateVariables(
       dims,
       textureDim: pickTextureDim(arr),
     });
+    const v = out[out.length - 1]!;
+    log.debug(`enumerate: variable "${rest}"`, {
+      dtype: arr.dtype,
+      shape: arr.shape,
+      chunks: arr.chunks,
+      fillValue: v.fillValue,
+      scaleFactor: v.scaleFactor,
+      addOffset: v.addOffset,
+      textureDim: v.textureDim,
+    });
     if (probing) break; // can't list further; one variable is enough
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
+  log.info(`enumerate: ${out.length} renderable variable(s)`);
   return out;
 }
 
@@ -263,6 +291,15 @@ async function synthesizeSpatialAttrs(
     lonLast: Number(lon[lon.length - 1]),
     count: lon.length,
   });
+  log.debug(`synthesized grid from ${latName}/${lonName}`, {
+    latLen: lat.length,
+    lonLen: lon.length,
+    stepLat,
+    originLon: frame.originLon,
+    stepLon: frame.stepLon,
+    rollLongitude: frame.rollLongitude,
+    isGlobal: frame.isGlobal,
+  });
   return {
     attrs: {
       "spatial:dimensions": [latName, lonName],
@@ -327,14 +364,20 @@ const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
  * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
  * lowest zoom satisfying both budgets.
  *
+ * All byte estimates are the *full atomic chunk*: spatial pixels ×
+ * `bundledChunkEls` (the product of non-spatial chunk dims) × element size,
+ * because a zarr chunk is fetched whole — a bundled `step`/`time` axis sharing
+ * the spatial chunk is pulled per tile regardless of zoom.
+ *
  * **Single-chunk-plane special case** (when `shapeW`/`shapeH` are passed and the
  * spatial chunk spans the whole plane): the store is one tile, so zooming in
- * can't reduce the fetch. If that one fetch fits {@link SINGLE_TILE_BYTE_BUDGET}
- * we render it at world view (z0) — the per-zoom byte gate is meaningless here
- * and would only hide globally-available data behind a misleading "zoom in"
- * hint. An over-budget single plane falls through to the loop below, which
- * settles on its resolution floor and defers the large fetch until the user
- * zooms in.
+ * can't reduce the fetch. If that one (full, bundled) fetch fits
+ * {@link SINGLE_TILE_BYTE_BUDGET} we render it at world view (z0) — the per-zoom
+ * byte gate is meaningless here and would only hide globally-available data
+ * behind a misleading "zoom in" hint. An over-budget single plane (whether from
+ * resolution or a heavy bundled axis, e.g. SILAM's 120-step ≈387 MB chunk)
+ * falls through to the loop below, which settles on a zoom floor and defers the
+ * large fetch until the user zooms in.
  *
  * Bytes are otherwise the *pure viewport* (not rounded up to whole chunks):
  * tiny chunks blow the request budget and gate up, where zoom can actually fix
@@ -352,6 +395,13 @@ export function deriveMinZoom(
    * short-circuit; omit to keep the pure per-zoom budget gate. */
   shapeW?: number,
   shapeH?: number,
+  /** Product of the NON-spatial chunk dims (e.g. a bundled `step`/`time` axis
+   * that shares the spatial chunk). Zarr chunks are atomic, so a tile read
+   * pulls the whole chunk including these frames — the real per-fetch volume is
+   * `spatial · bundledChunkEls · bytesPerEl`. Defaults to 1 (a pure 2-D plane).
+   * Folding it in keeps a bundle-heavy store (e.g. SILAM's 120-step plane,
+   * ≈387 MB/chunk) from being mistaken for one tiny global tile. */
+  bundledChunkEls = 1,
 ): number {
   if (!(metersPerPx > 0)) return 0;
   if (
@@ -359,7 +409,7 @@ export function deriveMinZoom(
     shapeH != null &&
     chunkW >= shapeW &&
     chunkH >= shapeH &&
-    chunkW * chunkH * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
+    chunkW * chunkH * bundledChunkEls * bytesPerEl <= SINGLE_TILE_BYTE_BUDGET
   ) {
     return 0; // one global tile; zooming loads nothing new
   }
@@ -369,7 +419,8 @@ export function deriveMinZoom(
   for (let z = 0; z <= MAX_RENDER_ZOOM; z++) {
     const d = REF_AXIS_PX * 2 ** (nativeZoom - z); // data px per axis
     const requests = Math.ceil(d / cw) * Math.ceil(d / ch);
-    const bytes = d * d * bytesPerEl;
+    // Each fetched chunk carries its full bundled (non-spatial) extent.
+    const bytes = d * d * bundledChunkEls * bytesPerEl;
     if (bytes <= BUDGET_BYTES && requests <= BUDGET_CHUNKS) return z;
   }
   return MAX_RENDER_ZOOM;
@@ -396,7 +447,11 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
   }),
 
   async prepare(url, signal) {
+    const done = log.time("scalar-grid prepare", "info");
     const opened = await openV3Group(url, { consolidated: true });
+    // A multiscale pyramid needs the multiscale-grid profile; signal the
+    // chassis to switch (cheaper than probing the store up front on every load).
+    if (parseMultiscaleDatasets(opened.group.attrs)) throw new MultiscaleStoreError();
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(opened.group, signal, arrays);
     if (variables.length === 0) {
@@ -439,6 +494,11 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const chunkW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
     const shapeH = firstArr.shape[nd - 2] ?? 0;
     const shapeW = firstArr.shape[nd - 1] ?? 0;
+    // Non-spatial chunk dims share the (atomic) spatial chunk, so a tile read
+    // pulls them too — e.g. SILAM bundles 120 `step` frames per chunk.
+    const bundledChunkEls = firstArr.chunks
+      .slice(0, nd - 2)
+      .reduce((a, b) => a * b, 1);
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
       chunkW,
@@ -446,7 +506,20 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       bytesPerElement(firstArr.dtype),
       shapeW,
       shapeH,
+      bundledChunkEls,
     );
+    log.info(
+      `prepared "${first.name}" ${firstArr.dtype} [${firstArr.shape.join(",")}] ` +
+        `${metadataSource}, metersPerPx=${Math.round(metersPerPx)}, minRenderZoom=${minRenderZoom}`,
+    );
+    log.debug("prepare detail", {
+      variables: variables.length,
+      chunks: firstArr.chunks,
+      bundledChunkEls,
+      rollLongitude,
+      projCode,
+      textureDim: first.textureDim,
+    });
 
     // CF labels for every non-spatial dim (dates / durations / index).
     const dimSize = new Map<string, number>();
@@ -458,6 +531,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       dimLabel[name] = await buildDimLabel(opened.group, name, size);
     }
 
+    done();
     return {
       url,
       group: opened.group,

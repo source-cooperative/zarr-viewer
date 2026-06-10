@@ -8,6 +8,59 @@ export function isAbortError(err: unknown): boolean {
   return name === "AbortError";
 }
 
+// --- Tile-load health -------------------------------------------------------
+// deck.gl's inner TileLayer exposes no `onTileError` hook (see the note on
+// `installConsoleAbortFilter` below), so the tile loaders report success /
+// failure here. We track CONSECUTIVE non-abort failures and flip a "degraded"
+// flag once they cross a threshold, letting the UI show a non-blocking
+// "tiles loading slowly" notice. Aborts (normal pan/zoom pruning) are ignored
+// so routine navigation never trips it; any success resets the streak.
+
+/** Consecutive non-abort tile failures needed before signalling "degraded". */
+const TILE_FAILURE_THRESHOLD = 4;
+
+let consecutiveTileFailures = 0;
+let tileDegraded = false;
+const tileHealthListeners = new Set<(degraded: boolean) => void>();
+
+function setTileDegraded(next: boolean): void {
+  if (next === tileDegraded) return;
+  tileDegraded = next;
+  for (const listener of tileHealthListeners) listener(next);
+}
+
+/** Record a tile load outcome. A success clears the failure streak (and the
+ * degraded flag); a non-abort failure extends it and may flip to degraded. */
+export function reportTileResult(ok: boolean): void {
+  if (ok) {
+    consecutiveTileFailures = 0;
+    setTileDegraded(false);
+  }
+}
+
+/** Record a tile load failure. Aborts (expected during pruning) are ignored. */
+export function reportTileError(err: unknown): void {
+  if (isAbortError(err)) return;
+  consecutiveTileFailures++;
+  if (consecutiveTileFailures >= TILE_FAILURE_THRESHOLD) setTileDegraded(true);
+}
+
+/** Subscribe to tile-health changes (`true` = degraded). Returns an
+ * unsubscribe fn. Fires only on transitions. */
+export function subscribeTileHealth(
+  listener: (degraded: boolean) => void,
+): () => void {
+  tileHealthListeners.add(listener);
+  return () => tileHealthListeners.delete(listener);
+}
+
+/** Test-only: reset tile-health state between cases. */
+export function _resetTileHealthForTesting(): void {
+  consecutiveTileFailures = 0;
+  tileDegraded = false;
+  tileHealthListeners.clear();
+}
+
 /** Substrings of `console.warn` messages we suppress because they are
  * known, harmless noise emitted by deck.gl / luma.gl on a hot path. */
 const SUPPRESSED_WARN_SUBSTRINGS: readonly string[] = [

@@ -1,10 +1,14 @@
 import type { GetTileDataOptions } from "@developmentseed/deck.gl-zarr";
 import * as zarr from "zarrita";
+import { createLogger } from "../../../log";
 import { registerSampleTile } from "../../../render/sample-source";
 import {
   buildMultiBandTile,
   type MultiBandTileData,
 } from "../../../render/shared-textures";
+import { reportTileError, reportTileResult } from "../../tile-error";
+
+const log = createLogger("tiles");
 
 /** ScalarGrid single-band tile loader for regular lat/lon grids.
  *
@@ -41,11 +45,28 @@ export function makeScalarGridTileLoader(opts: {
     options: GetTileDataOptions,
   ): Promise<MultiBandTileData> {
     const { device, sliceSpec, signal, width, height } = options;
-    const chunk = await zarr.get(
-      arr as zarr.Array<zarr.NumberDataType, zarr.Readable>,
-      sliceSpec,
-      { signal },
-    );
+    const t0 = log.isEnabled("debug") ? performance.now() : 0;
+    let chunk: Awaited<ReturnType<typeof zarr.get>>;
+    try {
+      chunk = await zarr.get(
+        arr as zarr.Array<zarr.NumberDataType, zarr.Readable>,
+        sliceSpec,
+        { signal },
+      );
+    } catch (err) {
+      // Surface persistent (non-abort) tile failures to the UI; rethrow so
+      // deck.gl leaves a gap for this tile rather than rendering stale data.
+      reportTileError(err);
+      log.debug(`tile ${options.x},${options.y},${options.z} failed`, err);
+      throw err;
+    }
+    reportTileResult(true);
+    if (log.isEnabled("debug")) {
+      const bytes = (chunk.data as { byteLength?: number }).byteLength;
+      log.debug(
+        `tile ${options.x},${options.y},${options.z} ${bytes ?? "?"}B in ${Math.round(performance.now() - t0)}ms`,
+      );
+    }
     if (chunk.shape.length !== 2) {
       throw new Error(
         `ScalarGrid tile expected 2D [H,W] after slicing; got [${chunk.shape.join(",")}]`,

@@ -1,5 +1,8 @@
+import { createLogger } from "./log";
 import type { AnyZarrProfile } from "./zarr/profile";
 import { DEFAULT_PROFILE, getProfile } from "./zarr/profiles";
+
+const log = createLogger("source");
 
 /** Pick the active profile for a (url, explicit-override) pair. Profiles are
  * capability-based (not URL-matched), so an explicit `?p=` id wins; otherwise
@@ -11,9 +14,13 @@ export function detectProfile(
 ): AnyZarrProfile | null {
   if (explicit) {
     const found = getProfile(explicit);
-    if (found) return found;
+    if (found) {
+      log.info(`profile "${found.id}" (explicit ?p=${explicit})`);
+      return found;
+    }
   }
   if (!url) return null;
+  log.info(`profile "${DEFAULT_PROFILE.id}" (default)`);
   return DEFAULT_PROFILE;
 }
 
@@ -31,5 +38,6 @@ export function normalizeStoreUrl(raw: string): string {
   let url = raw.trim();
   url = url.replace(/\/(zarr\.json|\.zmetadata)\/?$/, "");
   url = url.replace(/^(https?:\/\/)source\.coop\//, "$1data.source.coop/");
+  if (url !== raw.trim()) log.debug(`normalized url: ${raw.trim()} → ${url}`);
   return url;
 }
