@@ -121,6 +121,27 @@ export const EXAMPLES: Example[] = [
     // earliest day. Single renderable variable (precip).
     params: { lng: "37", lat: "5", zoom: "4", colormap: "viridis" },
   },
+  // Nested-group store: renderable arrays live in FUTUR/HISTO/RC subgroups, not
+  // at the root. The scalar-grid profile walks the consolidated hierarchy and
+  // resolves each variable's lat/lon (and per-dim) coord arrays under its own
+  // subgroup path.
+  {
+    title: "CCIWR — Runoff: relative change % (CMIP6, 0.5°)",
+    url: "https://source.coop/earthblox/cciwr/data/cciwr.zarr",
+    // Global 0.5° grid (360×720, single plane → renders at z0). RC = relative
+    // change (%) vs. 1985–2014, a signed anomaly, so a diverging map
+    // (rdbu: red=drier, blue=wetter) over ±50% reads well. Lands on total
+    // runoff (qtot); 5 non-spatial dims (ghm/gcm/ssp/horizon/season) get
+    // selectors.
+    params: {
+      lng: "0",
+      lat: "20",
+      zoom: "2",
+      var: "RC/qtot",
+      colormap: "rdbu",
+      rescale: "-50,50",
+    },
+  },
   {
     title: "SEAS5 — SPI-3 drought index (East Africa, 10 km)",
     url: "https://source.coop/e4drr-project/forecasts/seas51_spi3_10km_icechunk_v2",

@@ -22,6 +22,7 @@
     "@petamoriken/float16": "^3.9.3",
     "icechunk-js": "^0.4.0",
     "maplibre-gl": "^5.24.0",
+    "numcodecs": "0.3.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-map-gl": "^8.1.1",
