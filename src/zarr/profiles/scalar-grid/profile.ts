@@ -63,6 +63,12 @@ const CANDIDATE_VARIABLES = [
   ...PREFERRED_VARIABLES,
 ];
 
+/** Join a (possibly empty) subgroup path with a leaf name. `""` (a root-level
+ * variable) yields the bare leaf; `zarr.Location.resolve()` joins the rest. */
+function joinPath(group: string, leaf: string): string {
+  return group ? `${group}/${leaf}` : leaf;
+}
+
 function spatialPair(
   dims: readonly (string | null)[] | undefined,
 ): { lat: string; lon: string } | null {
@@ -76,6 +82,33 @@ function spatialPair(
 
 function isNumericDtype(dtype: string): boolean {
   return /^(float|int|uint)/.test(dtype);
+}
+
+/** The outer (shard) spatial shape `[height, width]` from raw v3 array
+ * metadata when the array is sharded, else null.
+ *
+ * zarrita exposes a sharded array's INNER sub-chunk as `arr.chunks`, but a tile
+ * read coalesces every inner read inside one shard (see `withRangeCoalescing`),
+ * so the atomic fetch unit is the OUTER shard. The single-tile min-zoom gate
+ * (see {@link deriveMinZoom}) must judge that shard, not the sub-chunk —
+ * otherwise a coarse global grid whose whole plane is one shard (e.g. CCIWR,
+ * 360×720 in a single shard of 20×20 sub-chunks) is mis-gated to a high zoom
+ * and never draws at world view. Pure (takes the parsed metadata) for testing. */
+export function shardSpatialShape(meta: unknown): [number, number] | null {
+  if (!meta || typeof meta !== "object") return null;
+  const m = meta as {
+    codecs?: { name?: string }[];
+    chunk_grid?: { configuration?: { chunk_shape?: number[] } };
+  };
+  const sharded =
+    Array.isArray(m.codecs) &&
+    m.codecs.some((c) => c?.name === "sharding_indexed");
+  if (!sharded) return null;
+  const outer = m.chunk_grid?.configuration?.chunk_shape;
+  if (!Array.isArray(outer) || outer.length < 2) return null;
+  const h = Number(outer[outer.length - 2]);
+  const w = Number(outer[outer.length - 1]);
+  return Number.isFinite(h) && Number.isFinite(w) ? [h, w] : null;
 }
 
 /** Max r32float Texture2DArray we'll build to scrub a bundled dim on the GPU.
@@ -123,9 +156,14 @@ function pickTextureDim(
   return best ? { name: best.name, window: best.window } : null;
 }
 
-/** Enumerate renderable variables = top-level arrays whose last two dims are
- * a recognized lat/lon pair and whose dtype is numeric. */
-async function enumerateVariables(
+/** Enumerate renderable variables = arrays whose last two dims are a
+ * recognized lat/lon pair and whose dtype is numeric. With consolidated
+ * metadata this walks the whole hierarchy, so arrays nested in subgroups
+ * (e.g. `RC/qtot`) are included; each variable records its parent `group` so
+ * its sibling lat/lon and per-dim coord arrays resolve under that path. The
+ * no-consolidated-metadata fallback probes a flat candidate list, so it stays
+ * root-only (those names carry no `/`). */
+export async function enumerateVariables(
   group: zarr.Group<zarr.Readable>,
   signal: AbortSignal,
   /** Opened arrays are cached here (keyed by name) so later opens — and the
@@ -153,7 +191,7 @@ async function enumerateVariables(
   const out: ScalarGridVariable[] = [];
   for (const rest of paths) {
     if (signal.aborted) return out;
-    if (!rest || rest.includes("/")) continue; // top-level only
+    if (!rest) continue;
     let arr: zarr.Array<zarr.DataType, zarr.Readable>;
     try {
       arr = await zarr.open.v3(group.resolve(rest), { kind: "array" });
@@ -179,8 +217,10 @@ async function enumerateVariables(
       size: arr.shape[i] ?? 0,
     }));
     const attrs = arr.attrs;
+    const slash = rest.lastIndexOf("/");
     out.push({
       name: rest,
+      group: slash < 0 ? "" : rest.slice(0, slash),
       longName: typeof attrs.long_name === "string" ? attrs.long_name : null,
       units: typeof attrs.units === "string" ? attrs.units : null,
       fillValue:
@@ -266,12 +306,14 @@ export function resolveLonFrame(opts: {
  * snap) is delegated to {@link resolveLonFrame}. */
 async function synthesizeSpatialAttrs(
   group: zarr.Group<zarr.Readable>,
+  groupPath: string,
   latName: string,
   lonName: string,
 ): Promise<{ attrs: ScalarGridSpatialAttrs; rollLongitude: boolean }> {
+  // Coord arrays are siblings of the variable, i.e. under its subgroup path.
   const [latArr, lonArr] = await Promise.all([
-    zarr.open.v3(group.resolve(latName), { kind: "array" }),
-    zarr.open.v3(group.resolve(lonName), { kind: "array" }),
+    zarr.open.v3(group.resolve(joinPath(groupPath, latName)), { kind: "array" }),
+    zarr.open.v3(group.resolve(joinPath(groupPath, lonName)), { kind: "array" }),
   ]);
   const [latChunk, lonChunk] = await Promise.all([
     zarr.get(latArr as zarr.Array<zarr.NumberDataType, zarr.Readable>),
@@ -487,7 +529,12 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       degPerPxLon = Math.abs(native.transform[0]!);
       projCode = native.projCode;
     } else {
-      const syn = await synthesizeSpatialAttrs(opened.group, pair.lat, pair.lon);
+      const syn = await synthesizeSpatialAttrs(
+        opened.group,
+        first.group,
+        pair.lat,
+        pair.lon,
+      );
       spatialAttrs = syn.attrs;
       rollLongitude = syn.rollLongitude;
       metadataSource = "synthesized";
@@ -498,10 +545,31 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       ? degPerPxLon * (EARTH_CIRCUMFERENCE_M / 360)
       : degPerPxLon; // projected transforms are already in metres
     const nd = firstArr.chunks.length;
-    const chunkH = firstArr.chunks[nd - 2] ?? REF_AXIS_PX;
-    const chunkW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
+    const innerH = firstArr.chunks[nd - 2] ?? REF_AXIS_PX;
+    const innerW = firstArr.chunks[nd - 1] ?? REF_AXIS_PX;
     const shapeH = firstArr.shape[nd - 2] ?? 0;
     const shapeW = firstArr.shape[nd - 1] ?? 0;
+    // For a sharded array, prefer the OUTER shard spatial shape for the
+    // min-zoom gate, but only when that shard spans the whole plane — then the
+    // store is effectively one tile and should render at z0 (the per-zoom
+    // budget loop never runs). Multi-shard stores (AEF/FTW) keep the inner
+    // sub-chunk, preserving their resolution-based gate. Falls back to the
+    // inner chunk on any read/parse failure.
+    let chunkH = innerH;
+    let chunkW = innerW;
+    try {
+      const raw = await opened.store.get(
+        `/${first.name}/zarr.json` as `/${string}`,
+      );
+      const shard = raw
+        ? shardSpatialShape(JSON.parse(new TextDecoder().decode(raw)))
+        : null;
+      if (shard && shard[0] >= shapeH && shard[1] >= shapeW) {
+        [chunkH, chunkW] = shard;
+      }
+    } catch {
+      // keep inner chunk
+    }
     // Non-spatial chunk dims share the (atomic) spatial chunk, so a tile read
     // pulls them too — e.g. SILAM bundles 120 `step` frames per chunk.
     const bundledChunkEls = firstArr.chunks
@@ -529,14 +597,24 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       textureDim: first.textureDim,
     });
 
-    // CF labels for every non-spatial dim (dates / durations / index).
-    const dimSize = new Map<string, number>();
+    // CF labels for every non-spatial dim (dates / durations / index). The
+    // map is keyed by the BARE dim name (state/UI use bare names), but each
+    // dim's coord array is resolved from a subgroup that actually holds it —
+    // assuming identically-named dims across subgroups share values (true for
+    // nested stores like CCIWR, whose subgroups duplicate the coord arrays).
+    const dimMeta = new Map<string, { size: number; group: string }>();
     for (const v of variables)
-      for (const d of v.dims) dimSize.set(d.name, d.size);
+      for (const d of v.dims)
+        if (!dimMeta.has(d.name))
+          dimMeta.set(d.name, { size: d.size, group: v.group });
     const dimLabel: Record<string, (idx: number) => string> = {};
-    for (const [name, size] of dimSize) {
+    for (const [name, { size, group }] of dimMeta) {
       if (signal.aborted) break;
-      dimLabel[name] = await buildDimLabel(opened.group, name, size);
+      dimLabel[name] = await buildDimLabel(
+        opened.group,
+        joinPath(group, name),
+        size,
+      );
     }
 
     done();

@@ -10,7 +10,13 @@ export type ScalarGridDim = {
 /** A renderable data variable: an array whose last two dims are a
  * recognized lat/lon spatial pair. */
 export type ScalarGridVariable = {
+  /** Full path from the store root (e.g. `"qtot"` for a root-level array, or
+   * `"RC/qtot"` for one in a subgroup). Used as the unique key, the `var` URL
+   * param, and for `group.resolve()` — zarrita joins the path itself. */
   name: string;
+  /** Parent subgroup path (`""` for a root-level variable). The variable's
+   * lat/lon and per-dim coordinate arrays are siblings under this path. */
+  group: string;
   longName: string | null;
   units: string | null;
   /** Numeric fill value if present (used as nodata when non-zero). */

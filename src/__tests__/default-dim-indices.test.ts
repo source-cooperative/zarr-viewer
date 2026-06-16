@@ -9,6 +9,7 @@ import {
 function variable(dims: { name: string; size: number }[]): ScalarGridVariable {
   return {
     name: "v",
+    group: "",
     longName: null,
     units: null,
     fillValue: null,
