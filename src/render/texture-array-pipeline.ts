@@ -223,18 +223,25 @@ export function makeTextureArrayTileLoader(opts: {
       const depth = full.depth;
       const frameLen = height * width;
       const shift = opts.rollLongitude ? width >>> 1 : 0;
-      registerSampleTile(opts.sampleKey, options.x, options.y, options.z, {
-        rowStart,
-        colStart,
-        height,
-        width,
-        valueAt: (lr, lc, frame) => {
-          if (frame < 0 || frame >= depth) return Number.NaN;
-          const physCol = shift ? (lc + shift) % width : lc;
-          const v = Number(raw[frame * frameLen + lr * width + physCol]);
-          return fill !== null && v === fill ? Number.NaN : v * scale + offset;
+      registerSampleTile(
+        opts.sampleKey,
+        options.x,
+        options.y,
+        options.z,
+        {
+          rowStart,
+          colStart,
+          height,
+          width,
+          valueAt: (lr, lc, frame) => {
+            if (frame < 0 || frame >= depth) return Number.NaN;
+            const physCol = shift ? (lc + shift) % width : lc;
+            const v = Number(raw[frame * frameLen + lr * width + physCol]);
+            return fill !== null && v === fill ? Number.NaN : v * scale + offset;
+          },
         },
-      });
+        full.byteLength,
+      );
     }
 
     const start = opts.window ? opts.window.start : 0;

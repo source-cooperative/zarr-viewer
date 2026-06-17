@@ -20,20 +20,37 @@ export type SampleTile = {
   valueAt: (localRow: number, localCol: number, frame: number) => number;
 };
 
-/** Cap per key — roughly one viewport of chunks. Bounds the map size (records
- * are tiny; the big arrays they reference are bounded elsewhere). */
-const MAX_TILES_PER_KEY = 64;
+/** How many recent selections (`sampleKey`s) to retain. Keeping a few — rather
+ * than wiping every other bucket on a key switch — means a late tile from a
+ * superseded selection can't erase the active bucket, and flipping a dim back
+ * is instant. The oldest key is dropped once this many are live. */
+export const MAX_KEYS = 4;
 
-type Bucket = Map<string, SampleTile>; // tileKey -> tile (insertion order = LRU)
-const registry = new Map<string, Bucket>(); // sampleKey -> bucket
-let activeKey: string | null = null;
+/** Per-key memory budget. A coarse global grid stored as a single shard is
+ * tiled by its (small) inner chunk, so one selection can span hundreds of tiles
+ * — far past the old fixed count cap, which silently dropped most of the plane
+ * (so the tooltip worked only over the last-loaded tiles). Bounding by bytes
+ * keeps a whole coarse plane (tiles are tiny) while still capping a store whose
+ * tiles are large. Mirrors {@link decodedChunkCache}'s byte-LRU. */
+export const MAX_BYTES_PER_KEY = 128 * 1e6;
+
+type Entry = { tile: SampleTile; bytes: number };
+type Bucket = { tiles: Map<string, Entry>; bytes: number }; // tileKey -> entry (insertion order = LRU)
+const registry = new Map<string, Bucket>(); // sampleKey -> bucket (insertion order = key LRU)
 
 const tileKey = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
+/** Move `sampleKey` to the most-recently-used end of the key LRU. */
+function touch(sampleKey: string, bucket: Bucket): void {
+  registry.delete(sampleKey);
+  registry.set(sampleKey, bucket);
+}
+
 /**
- * Register a decoded tile under `sampleKey`. Switching the active key drops
- * every other bucket — once the selection changes, stale tiles can never be
- * read again (the profile reads only the current key).
+ * Register a decoded tile under `sampleKey`. `byteLength` is the size of the
+ * data the tile's `valueAt` references, used to bound per-key memory. Within a
+ * key, least-recently-registered tiles are evicted past {@link MAX_BYTES_PER_KEY};
+ * across keys, the least-recently-used selection is dropped past {@link MAX_KEYS}.
  */
 export function registerSampleTile(
   sampleKey: string,
@@ -41,23 +58,35 @@ export function registerSampleTile(
   y: number,
   z: number,
   tile: SampleTile,
+  byteLength: number,
 ): void {
-  if (sampleKey !== activeKey) {
-    registry.clear();
-    activeKey = sampleKey;
-  }
   let bucket = registry.get(sampleKey);
-  if (!bucket) {
-    bucket = new Map();
+  if (bucket) touch(sampleKey, bucket);
+  else {
+    bucket = { tiles: new Map(), bytes: 0 };
     registry.set(sampleKey, bucket);
   }
   const k = tileKey(x, y, z);
-  bucket.delete(k); // refresh recency
-  bucket.set(k, tile);
-  while (bucket.size > MAX_TILES_PER_KEY) {
-    const oldest = bucket.keys().next().value as string | undefined;
+  const prev = bucket.tiles.get(k);
+  if (prev) {
+    bucket.tiles.delete(k); // refresh recency + drop old bytes
+    bucket.bytes -= prev.bytes;
+  }
+  bucket.tiles.set(k, { tile, bytes: byteLength });
+  bucket.bytes += byteLength;
+  // Evict least-recently-used tiles past the per-key budget (keep ≥1 so a
+  // single oversized tile still works).
+  while (bucket.bytes > MAX_BYTES_PER_KEY && bucket.tiles.size > 1) {
+    const oldest = bucket.tiles.keys().next().value as string | undefined;
     if (oldest === undefined) break;
-    bucket.delete(oldest);
+    bucket.bytes -= bucket.tiles.get(oldest)!.bytes;
+    bucket.tiles.delete(oldest);
+  }
+  // Drop the least-recently-used whole selection past the key budget.
+  while (registry.size > MAX_KEYS) {
+    const oldestKey = registry.keys().next().value as string | undefined;
+    if (oldestKey === undefined || oldestKey === sampleKey) break;
+    registry.delete(oldestKey);
   }
 }
 
@@ -74,7 +103,10 @@ export function readSampleValue(
 ): number | null {
   const bucket = registry.get(sampleKey);
   if (!bucket) return null;
-  for (const t of bucket.values()) {
+  // Refresh recency so the actively-hovered selection isn't aged out of the
+  // key LRU by background registrations under other keys.
+  touch(sampleKey, bucket);
+  for (const { tile: t } of bucket.tiles.values()) {
     const lr = row - t.rowStart;
     const lc = col - t.colStart;
     if (lr >= 0 && lr < t.height && lc >= 0 && lc < t.width) {
@@ -87,5 +119,4 @@ export function readSampleValue(
 /** Test seam: forget everything (so suites don't leak the module-level state). */
 export function _resetSampleSource(): void {
   registry.clear();
-  activeKey = null;
 }

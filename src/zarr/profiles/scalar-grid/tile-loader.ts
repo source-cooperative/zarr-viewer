@@ -106,13 +106,20 @@ export function makeScalarGridTileLoader(opts: {
       const rowStart = (sliceSpec[nd - 2] as zarr.Slice)?.start ?? 0;
       const colStart = (sliceSpec[nd - 1] as zarr.Slice)?.start ?? 0;
       const buf = float32;
-      registerSampleTile(opts.sampleKey, options.x, options.y, options.z, {
-        rowStart,
-        colStart,
-        height,
-        width,
-        valueAt: (lr, lc) => buf[lr * width + lc]!,
-      });
+      registerSampleTile(
+        opts.sampleKey,
+        options.x,
+        options.y,
+        options.z,
+        {
+          rowStart,
+          colStart,
+          height,
+          width,
+          valueAt: (lr, lc) => buf[lr * width + lc]!,
+        },
+        buf.byteLength,
+      );
     }
     // nodata: null — NaN is filtered automatically for float textures by
     // the single-band render pipeline's FilterNaN.
