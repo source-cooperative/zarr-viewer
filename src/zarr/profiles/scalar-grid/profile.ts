@@ -117,43 +117,83 @@ const TEXTURE_ARRAY_BUDGET_BYTES = 128 * 1e6;
 /** WebGL2 guarantees at least 256 array-texture layers. */
 const MAX_TEXTURE_LAYERS = 256;
 
-/** Pick the non-spatial dim to load into a GPU texture array, or null.
+/** Max bytes of the decoded chunk we'll keep resident to enable cheap
+ * (slice + re-upload, no fetch/decode) scrubbing of fully-packed "memory" dims.
+ * The chunk is fetched whole regardless; this only bounds how much we retain. */
+const MEMORY_CHUNK_BUDGET_BYTES = 128 * 1e6;
+
+/** Classify a variable's fully-packed non-spatial dims into the one GPU
+ * texture-array dim (free shader-uniform scrub) and the "memory" dims.
  *
  * Shape-vs-chunks heuristic: a dim with `chunk > 1` is "free" to read in
  * bulk, so scrubbing it shouldn't cost a per-frame refetch. We require the dim
- * to be fully packed into a single chunk (`chunk === size`), then load as many
- * consecutive frames as the texture budget allows — the **window**. If the
- * whole dim fits (e.g. GFS `level`, 13 frames), scrubbing is fully free; if not
- * (e.g. SILAM `step`, 120 frames → a ~19-frame window), the window is
- * page-aligned and only crossing a boundary refetches. Among candidates, prefer
- * the dim with the most frames (most to amortize). */
-function pickTextureDim(
+ * to be fully packed into a single chunk (`chunk === size`).
+ *
+ * - **textureDim**: the largest packed dim, loaded into an r32float
+ *   Texture2DArray and scrubbed via a shader uniform. `window` is how many
+ *   consecutive frames fit the texture budget (whole dim fits → fully free;
+ *   else page-aligned windows, crossing a boundary re-uploads from cache). GFS
+ *   `level`, SILAM `step`, ECMWF `lead_time`.
+ * - **memoryDims**: the OTHER packed dims (e.g. ECMWF `ensemble_member`). They
+ *   already ride along in every fetched chunk, so scrubbing one re-slices the
+ *   cached chunk + re-uploads — no network, no decode. Admitted greedily
+ *   (largest first) while the retained chunk stays within
+ *   {@link MEMORY_CHUNK_BUDGET_BYTES}; any that don't fit stay genuinely pinned
+ *   (re-read on change). Only populated when a textureDim exists (the
+ *   texture-array render path is what holds the chunk). */
+export function pickTextureDim(
   arr: zarr.Array<zarr.DataType, zarr.Readable>,
-): { name: string; window: number } | null {
+): {
+  textureDim: { name: string; window: number } | null;
+  memoryDims: { name: string; size: number }[];
+} {
+  const none = {
+    textureDim: null,
+    memoryDims: [] as { name: string; size: number }[],
+  };
   const dims = arr.dimensionNames;
-  if (!Array.isArray(dims)) return null;
+  if (!Array.isArray(dims)) return none;
   const tileH = arr.chunks[arr.chunks.length - 2] ?? 0;
   const tileW = arr.chunks[arr.chunks.length - 1] ?? 0;
   const frameBytes = tileW * tileH * 4;
-  if (frameBytes <= 0) return null;
+  if (frameBytes <= 0) return none;
   // Most frames that fit the budget (and the WebGL layer cap).
   const maxFrames = Math.min(
     MAX_TEXTURE_LAYERS,
     Math.floor(TEXTURE_ARRAY_BUDGET_BYTES / frameBytes),
   );
-  if (maxFrames < 2) return null; // can't even hold a useful window
-  let best: { name: string; window: number; size: number } | null = null;
+  if (maxFrames < 2) return none; // can't even hold a useful window
+  // Every fully-packed (chunk === size > 1) non-spatial dim is a candidate.
+  const packed: { name: string; size: number }[] = [];
   for (let i = 0; i < dims.length - 2; i++) {
     const chunk = arr.chunks[i] ?? 1;
     const size = arr.shape[i] ?? 0;
     const name = dims[i];
     if (typeof name !== "string") continue;
     if (chunk <= 1 || chunk !== size) continue; // whole dim in one chunk
-    const window = Math.min(size, maxFrames);
-    if (window < 2) continue;
-    if (!best || size > best.size) best = { name, window, size };
+    packed.push({ name, size });
   }
-  return best ? { name: best.name, window: best.window } : null;
+  // Texture dim = the largest packed dim yielding a ≥2-frame window.
+  let best: { name: string; size: number } | null = null;
+  for (const p of packed) {
+    if (Math.min(p.size, maxFrames) < 2) continue;
+    if (!best || p.size > best.size) best = p;
+  }
+  if (!best) return none;
+  const textureDim = { name: best.name, window: Math.min(best.size, maxFrames) };
+  // Memory dims = the rest, admitted while the retained chunk fits the budget.
+  const rawBytes = bytesPerElement(arr.dtype) || 4;
+  const frameRaw = tileW * tileH * rawBytes;
+  let chunkBytes = best.size * frameRaw; // texture dim is always held in full
+  const memoryDims: { name: string; size: number }[] = [];
+  for (const p of packed
+    .filter((p) => p.name !== best!.name)
+    .sort((a, b) => b.size - a.size)) {
+    if (chunkBytes * p.size > MEMORY_CHUNK_BUDGET_BYTES) continue;
+    memoryDims.push(p);
+    chunkBytes *= p.size;
+  }
+  return { textureDim, memoryDims };
 }
 
 /** Enumerate renderable variables = arrays whose last two dims are a
@@ -218,6 +258,7 @@ export async function enumerateVariables(
     }));
     const attrs = arr.attrs;
     const slash = rest.lastIndexOf("/");
+    const { textureDim, memoryDims } = pickTextureDim(arr);
     out.push({
       name: rest,
       group: slash < 0 ? "" : rest.slice(0, slash),
@@ -235,7 +276,8 @@ export async function enumerateVariables(
         typeof attrs.scale_factor === "number" ? attrs.scale_factor : 1,
       addOffset: typeof attrs.add_offset === "number" ? attrs.add_offset : 0,
       dims,
-      textureDim: pickTextureDim(arr),
+      textureDim,
+      memoryDims,
     });
     const v = out[out.length - 1]!;
     log.debug(`enumerate: variable "${rest}"`, {
@@ -246,6 +288,7 @@ export async function enumerateVariables(
       scaleFactor: v.scaleFactor,
       addOffset: v.addOffset,
       textureDim: v.textureDim,
+      memoryDims: v.memoryDims,
     });
     if (probing) break; // can't list further; one variable is enough
   }
@@ -694,6 +737,9 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     if (!variableMeta) return null;
     const arr = node as zarr.Array<zarr.DataType, zarr.Readable>;
     const texDim = variableMeta.textureDim;
+    // Fully-packed dims that ride along in the decoded chunk: scrubbing them
+    // re-slices the cached chunk instead of re-reading (see makeTextureArrayTileLoader).
+    const memNames = new Set(variableMeta.memoryDims.map((d) => d.name));
 
     // For the texture-array dim, decode ALL frames once (cached on the CPU) and
     // upload a page-aligned window of `window` frames to the GPU. Scrubbing
@@ -713,15 +759,31 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       frameIndex = idx - windowStart;
     }
 
-    // Pin every non-spatial dim to its selected index. The texture dim is left
-    // as a full slice (`null`) so the whole chunk is decoded once for the cache.
+    // Pin every genuinely-pinned non-spatial dim to its selected index. The
+    // texture dim AND the fully-packed memory dims are left as full slices
+    // (`null`) so the whole chunk is decoded once and cached; the memory dims
+    // are then sliced from that cache in-memory (no re-fetch) per selection.
     const selection: Record<string, number | null> = {};
     for (const dim of variableMeta.dims) {
       selection[dim.name] =
-        texDim && dim.name === texDim.name
+        (texDim && dim.name === texDim.name) || memNames.has(dim.name)
           ? null
           : (state.dimIndices[dim.name] ?? 0);
     }
+    // Slice descriptor for the loader: among the full-sliced leading axes
+    // (texture dim + memory dims, in array order), which is the texture axis and
+    // what are the memory dims' current indices.
+    const survivors = variableMeta.dims.filter(
+      (d) => (texDim && d.name === texDim.name) || memNames.has(d.name),
+    );
+    const leading = texDim
+      ? {
+          texAxis: survivors.findIndex((d) => d.name === texDim.name),
+          memoryIndices: survivors.map((d) =>
+            d.name === texDim.name ? 0 : (state.dimIndices[d.name] ?? 0),
+          ),
+        }
+      : undefined;
     // Layer id = variable + fetched (pinned) dim indices, plus the texture
     // dim's *window start* (not its scrub index — that's a free uniform).
     const fetchedDims = Object.fromEntries(
@@ -729,9 +791,10 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     );
     if (texDim) fetchedDims[`${texDim.name}@win`] = windowStart;
     const pinnedKey = serializeDims(fetchedDims);
-    // Cache the decoded chunk by variable + the pinned (non-texture) dims; the
-    // window start is NOT part of the key, so every window shares one decode.
-    // The same key identifies the tiles registered for the hover tooltip.
+    // Cache the decoded chunk by variable + the genuinely-pinned dims; the
+    // texture window start AND the memory-dim indices are NOT part of the key,
+    // so changing them is a cache hit (re-slice/re-upload, no re-decode). The
+    // same key identifies the tiles registered for the hover tooltip.
     const sampleKey = sampleKeyFor(state, variableMeta);
     const chunkKey = sampleKey;
     const common = {
@@ -776,6 +839,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
           window: { start: windowStart, len: windowLen },
           chunkKey,
           sampleKey,
+          leading,
         }),
         renderTile,
         updateTriggers: {
@@ -929,17 +993,19 @@ function serializeDims(dimIndices: Record<string, number>): string {
     .join(",");
 }
 
-/** Identity of the decoded data for the current selection, EXCLUDING the
- * texture/scrub frame (one cached chunk holds every frame). Computed
- * identically in `buildLayer` (to register sample tiles) and `sampleValue` (to
- * read them) so they always agree. Equals the texture path's `chunkKey`. */
+/** Identity of the decoded chunk for the current selection, EXCLUDING the
+ * texture/scrub frame AND the fully-packed memory dims (one cached chunk holds
+ * every frame of all of them). Computed identically in `buildLayer` (cache /
+ * sample-tile key) and `sampleValue` (read) so they always agree. Equals the
+ * texture path's `chunkKey`, so changing a memory dim is a cache hit. */
 function sampleKeyFor(
   state: ScalarGridState,
   variable: ScalarGridVariable,
 ): string {
-  const texName = variable.textureDim?.name;
+  const packed = new Set<string>(variable.memoryDims.map((d) => d.name));
+  if (variable.textureDim) packed.add(variable.textureDim.name);
   const pinned = Object.fromEntries(
-    Object.entries(state.dimIndices).filter(([k]) => k !== texName),
+    Object.entries(state.dimIndices).filter(([k]) => !packed.has(k)),
   );
   return `${state.variable}|${serializeDims(pinned)}`;
 }

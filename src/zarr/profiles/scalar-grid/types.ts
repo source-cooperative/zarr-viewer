@@ -34,6 +34,11 @@ export type ScalarGridVariable = {
    * otherwise windows are page-aligned and only crossing a boundary refetches.
    * Either way, scrubbing within the loaded window is a free shader uniform. */
   textureDim: { name: string; window: number } | null;
+  /** Other fully-packed non-spatial dims (chunk === size) besides
+   * {@link textureDim}. They're already present in every fetched chunk, so
+   * changing one re-slices the cached chunk + re-uploads the texture — no
+   * network, no decode (cheap scrub), unlike a genuinely-pinned dim. */
+  memoryDims: { name: string; size: number }[];
 };
 
 /** Synthesized GeoZarr attrs describing the (regular) lat/lon grid. */

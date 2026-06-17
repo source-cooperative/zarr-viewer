@@ -85,12 +85,46 @@ export type TextureArrayTileData = MinimalTileData & {
   nodata: number | null;
 };
 
-/** Build the float32 texture data for frames `[start, start+len)` of an
- * all-frames `[depth, H, W]` array: coerce to float32, mask a finite non-zero
- * `fill` to NaN, and (when `roll`) roll each frame's columns by half-width to
- * map a 0..360 grid onto -180..180. */
-function buildWindowFloat32(
+/** Row-major strides of the LEADING axes for an array shaped
+ * `[...leadingShape, height, width]`. The trailing H/W strides are `width`/`1`;
+ * the last leading axis has stride `frameLen` (= height·width). */
+export function leadingStrides(leadingShape: number[], frameLen: number): number[] {
+  const strides = new Array<number>(leadingShape.length);
+  let acc = frameLen;
+  for (let a = leadingShape.length - 1; a >= 0; a--) {
+    strides[a] = acc;
+    acc *= leadingShape[a]!;
+  }
+  return strides;
+}
+
+/** Linear offset of the start of the H×W plane at the given per-leading-axis
+ * `indices`, for an array shaped `[...leadingShape, H, W]`. */
+export function planeOffset(
+  leadingShape: number[],
+  indices: number[],
+  frameLen: number,
+): number {
+  const strides = leadingStrides(leadingShape, frameLen);
+  let off = 0;
+  for (let a = 0; a < leadingShape.length; a++) off += indices[a]! * strides[a]!;
+  return off;
+}
+
+/** Build the float32 texture data for the texture dim's frames
+ * `[start, start+len)` of an all-frames chunk shaped `[...leadingShape, H, W]`.
+ * `texAxis` is the texture dim's position among the leading axes; the other
+ * leading axes (the fully-packed "memory" dims) are pinned to `fixedIdx`. Coerce
+ * to float32, mask a finite non-zero `fill` to NaN, and (when `roll`) roll each
+ * frame's columns by half-width to map a 0..360 grid onto -180..180.
+ *
+ * The single-leading-axis case (`leadingShape=[depth]`, `texAxis=0`) is the old
+ * `[depth, H, W]` behavior. */
+export function buildWindowFloat32(
   raw: ArrayLike<number>,
+  leadingShape: number[],
+  texAxis: number,
+  fixedIdx: number[],
   height: number,
   width: number,
   start: number,
@@ -103,8 +137,15 @@ function buildWindowFloat32(
   const frame = height * width;
   const out = new Float32Array(len * frame);
   const shift = roll ? width >>> 1 : 0;
+  const strides = leadingStrides(leadingShape, frame);
+  // Base offset from the pinned (non-texture) leading axes.
+  let fixedBase = 0;
+  for (let a = 0; a < leadingShape.length; a++) {
+    if (a !== texAxis) fixedBase += fixedIdx[a]! * strides[a]!;
+  }
+  const texStride = strides[texAxis] ?? frame;
   for (let f = 0; f < len; f++) {
-    const srcBase = (start + f) * frame;
+    const srcBase = fixedBase + (start + f) * texStride;
     const dstBase = f * frame;
     for (let r = 0; r < height; r++) {
       const sRow = srcBase + r * width;
@@ -126,9 +167,14 @@ function buildWindowFloat32(
  *
  * When `chunkKey` is given, the decoded all-frames array is memoized in
  * {@link decodedChunkCache} (keyed by `chunkKey` + spatial tile) so repeated
- * reads of the same chunk — e.g. scrubbing across `window`s — skip the
- * decompress. `window` then selects the frames uploaded to the GPU (the budget
- * bound); without it the whole array is uploaded (ECMWF). */
+ * reads of the same chunk — e.g. scrubbing across `window`s, or scrubbing a
+ * fully-packed "memory" dim — skip the decompress. `window` then selects the
+ * frames uploaded to the GPU (the budget bound); without it the whole texture
+ * dim is uploaded (ECMWF). `leading` describes how to slice a chunk that bundles
+ * more than the texture dim (e.g. ECMWF `lead_time` × `ensemble_member`): which
+ * leading axis is the texture dim and the pinned indices of the others. The
+ * memory indices are deliberately NOT part of `chunkKey`, so changing one is a
+ * cache hit (re-slice + re-upload, no re-fetch/decode). */
 export function makeTextureArrayTileLoader(opts: {
   fillValue: number | null;
   /** CF packing applied as `raw*scale + offset` (defaults 1 / 0). */
@@ -137,12 +183,18 @@ export function makeTextureArrayTileLoader(opts: {
   rollLongitude?: boolean;
   /** Frames `[start, start+len)` to upload. Omitted → all frames. */
   window?: { start: number; len: number };
-  /** Cache identity for the decoded chunk (variable + pinned dims). Omitted →
-   * no CPU caching (re-decode each call). */
+  /** Cache identity for the decoded chunk (variable + pinned, non-packed dims).
+   * Omitted → no CPU caching (re-decode each call). */
   chunkKey?: string;
   /** When set, register each decoded tile under this key so the hover tooltip
    * can read values from it (see render/sample-source). */
   sampleKey?: string;
+  /** Slice descriptor for a chunk whose leading (non-spatial) axes are the
+   * texture dim PLUS fully-packed memory dims. `texAxis` is the texture dim's
+   * position among the leading axes; `memoryIndices` is the pinned index per
+   * leading axis (the `texAxis` entry is ignored). Omitted → single leading
+   * axis = the texture dim (the original `[depth, H, W]` behavior). */
+  leading?: { texAxis: number; memoryIndices: number[] };
 }) {
   const scale = opts.scaleFactor ?? 1;
   const offset = opts.addOffset ?? 0;
@@ -188,14 +240,15 @@ export function makeTextureArrayTileLoader(opts: {
           `tile ${options.x},${options.y},${options.z} ${bytes ?? "?"}B in ${Math.round(performance.now() - t0)}ms`,
         );
       }
-      if (chunk.shape.length !== 3) {
+      const snd = chunk.shape.length;
+      if (snd < 3) {
         throw new Error(
-          `Texture-array tile expected 3D [frames, H, W]; got [${chunk.shape.join(",")}]`,
+          `Texture-array tile expected [...leading, H, W]; got [${chunk.shape.join(",")}]`,
         );
       }
-      if (chunk.shape[1] !== height || chunk.shape[2] !== width) {
+      if (chunk.shape[snd - 2] !== height || chunk.shape[snd - 1] !== width) {
         throw new Error(
-          `Texture-array tile shape mismatch: expected [*,${height},${width}], got [${chunk.shape.join(",")}]`,
+          `Texture-array tile shape mismatch: expected [...,${height},${width}], got [${chunk.shape.join(",")}]`,
         );
       }
       const raw = chunk.data as ArrayLike<number>;
@@ -203,7 +256,7 @@ export function makeTextureArrayTileLoader(opts: {
         (raw as { byteLength?: number }).byteLength ?? raw.length * 4;
       full = {
         data: raw,
-        depth: chunk.shape[0]!,
+        leadingShape: chunk.shape.slice(0, snd - 2),
         height,
         width,
         byteLength,
@@ -211,18 +264,28 @@ export function makeTextureArrayTileLoader(opts: {
       if (cacheKey) decodedChunkCache.set(cacheKey, full);
     }
 
+    // Resolve the texture axis + pinned memory indices (default: single leading
+    // axis = the texture dim).
+    const leadingShape = full.leadingShape;
+    const texAxis = opts.leading?.texAxis ?? 0;
+    const memoryIndices =
+      opts.leading?.memoryIndices ?? leadingShape.map(() => 0);
+    const texSize = leadingShape[texAxis] ?? 1;
+
     if (opts.sampleKey) {
       // Register on every call (even a cache hit): the sample bucket may have
       // been cleared by a selection change while `full` stayed cached. `full.data`
-      // is raw [depth,H,W] and UNrolled, so `valueAt` applies CF + the roll
-      // (mirrors buildWindowFloat32) to read in the displayed -180..180 frame.
+      // is the raw [...leading, H, W] chunk, UNrolled, so `valueAt` applies CF +
+      // the roll (mirrors buildWindowFloat32) to read in the displayed
+      // -180..180 frame, indexing the texture axis by `frame` and the memory
+      // axes by their pinned indices.
       const nd = sliceSpec.length;
       const rowStart = (sliceSpec[nd - 2] as zarr.Slice)?.start ?? 0;
       const colStart = (sliceSpec[nd - 1] as zarr.Slice)?.start ?? 0;
       const raw = full.data;
-      const depth = full.depth;
       const frameLen = height * width;
       const shift = opts.rollLongitude ? width >>> 1 : 0;
+      const idx = memoryIndices.slice();
       registerSampleTile(
         opts.sampleKey,
         options.x,
@@ -234,9 +297,12 @@ export function makeTextureArrayTileLoader(opts: {
           height,
           width,
           valueAt: (lr, lc, frame) => {
-            if (frame < 0 || frame >= depth) return Number.NaN;
+            if (frame < 0 || frame >= texSize) return Number.NaN;
             const physCol = shift ? (lc + shift) % width : lc;
-            const v = Number(raw[frame * frameLen + lr * width + physCol]);
+            idx[texAxis] = frame;
+            const v = Number(
+              raw[planeOffset(leadingShape, idx, frameLen) + lr * width + physCol],
+            );
             return fill !== null && v === fill ? Number.NaN : v * scale + offset;
           },
         },
@@ -245,11 +311,12 @@ export function makeTextureArrayTileLoader(opts: {
     }
 
     const start = opts.window ? opts.window.start : 0;
-    const len = opts.window
-      ? Math.min(opts.window.len, full.depth - start)
-      : full.depth;
+    const len = opts.window ? Math.min(opts.window.len, texSize - start) : texSize;
     const data = buildWindowFloat32(
       full.data,
+      leadingShape,
+      texAxis,
+      memoryIndices,
       height,
       width,
       start,

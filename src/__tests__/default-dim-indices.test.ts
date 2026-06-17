@@ -17,6 +17,7 @@ function variable(dims: { name: string; size: number }[]): ScalarGridVariable {
     addOffset: 0,
     dims,
     textureDim: null,
+    memoryDims: [],
   };
 }
 

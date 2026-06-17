@@ -1,10 +1,16 @@
 /** A decoded chunk held in CPU memory: the raw typed array for *all* frames of
- * a texture-array dimension (e.g. all 120 SILAM `step`s), plus its 3-D shape. */
+ * the bundled (non-spatial) dimensions — the texture-array dim plus any
+ * fully-packed "memory" dims (e.g. ECMWF `lead_time` × `ensemble_member`) —
+ * plus its shape. */
 export type DecodedChunk = {
-  /** Raw decoded data, row-major `[depth, height, width]`. Kept in its native
-   * dtype (e.g. Float16Array) so RAM ≈ the uncompressed chunk, not 2× for f32. */
+  /** Raw decoded data, row-major `[...leadingShape, height, width]`. Kept in
+   * its native dtype (e.g. Float16Array) so RAM ≈ the uncompressed chunk, not
+   * 2× for f32. */
   data: ArrayLike<number>;
-  depth: number;
+  /** Sizes of the leading (non-spatial) axes, in array order. Their product ×
+   * height × width equals `data.length`; lets callers recover strides to slice
+   * an arbitrary (texture-frame, memory-index…) combination. */
+  leadingShape: number[];
   height: number;
   width: number;
   byteLength: number;

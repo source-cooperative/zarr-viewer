@@ -15,10 +15,12 @@ export const EXAMPLES: Example[] = [
   {
     title: "ECMWF IFS ENS — 2 m Temperature (forecast cube)",
     url: "https://source.coop/dynamical/ecmwf-ifs-ens-forecast-15-day-0-25-degree/v0.1.0.zarr",
-    // Europe-centered at zoom 4.5 — matches the upstream
-    // `dynamical-zarr-ecmwf` example's default view, ECMWF's primary
-    // forecast domain.
-    params: { lng: "10", lat: "45", zoom: "4.5" },
+    // Europe-centered (ECMWF's primary forecast domain). Each chunk bundles
+    // 85 lead_times × 51 ensemble_members (~18 MB), so a viewport fill stays
+    // within budget only from ~z7 up (deriveMinZoom); a shallower default would
+    // land below the gate and render blank. lead_time scrubs live; ensemble is
+    // a cached (no-refetch) dim.
+    params: { lng: "10", lat: "45", zoom: "7" },
   },
   {
     title: "AlphaEarth Foundations Mosaic (10 m, 64-band embeddings)",
