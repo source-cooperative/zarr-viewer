@@ -151,4 +151,10 @@ export const EXAMPLES: Example[] = [
     // anomaly, so a diverging map (rdbu: red=dry, blue=wet) over ±2 reads well.
     params: { lng: "37", lat: "5", zoom: "4", colormap: "rdbu", rescale: "-2,2" },
   },
+  {
+    title: "IDR — idr0033A / BR00109990_C2 (OME-Zarr v0.5)",
+    url: "https://livingobjects.ebi.ac.uk/idr/zarr/v0.5/idr0033A/BR00109990_C2.zarr",
+    // No params: defaults to the scalar-grid profile. Tune viewport/colormap
+    // once we've seen how the geospatial metadata projects.
+  },
 ];
