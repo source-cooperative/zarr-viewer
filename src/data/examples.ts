@@ -152,9 +152,10 @@ export const EXAMPLES: Example[] = [
     params: { lng: "37", lat: "5", zoom: "4", colormap: "rdbu", rescale: "-2,2" },
   },
   {
-    title: "IDR — idr0033A / BR00109990_C2 (OME-Zarr v0.5)",
+    title: "IDR — idr0033A / BR00109990_C2 (Cell Painting, OME-Zarr)",
     url: "https://livingobjects.ebi.ac.uk/idr/zarr/v0.5/idr0033A/BR00109990_C2.zarr",
-    // No params: defaults to the scalar-grid profile. Tune viewport/colormap
-    // once we've seen how the geospatial metadata projects.
+    // Bioimaging OME-Zarr (no CRS): render in the non-geographic image
+    // profile's OrthographicView rather than on the map.
+    params: { p: "image-orthographic" },
   },
 ];

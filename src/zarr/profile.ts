@@ -61,6 +61,14 @@ export type ZarrProfile<
 > = {
   id: string;
   label: string;
+  /** Which render host the chassis mounts for this profile:
+   *   - "map" (default): MapLibre + deck.gl overlay, geographic coords. The
+   *     profile's `buildLayer` result is rendered there.
+   *   - "image": a standalone deck.gl `OrthographicView` for non-geographic
+   *     pixel-space data (bioimaging OME-Zarr). `buildLayer`/`initialBounds`/
+   *     `initialView` are unused; the {@link ImageViewer} reads `ctx`+`state`
+   *     directly. */
+  host?: "map" | "image";
   prepare: (url: string, signal: AbortSignal) => Promise<Ctx>;
   initialState: (ctx: Ctx) => S;
   parseUrlParams: (p: URLSearchParams) => Partial<S>;

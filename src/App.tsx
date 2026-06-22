@@ -21,6 +21,11 @@ import { Map as MaplibreMap, useControl } from "react-map-gl/maplibre";
 import { isDarkChrome, resolveBasemap } from "./basemaps";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { EmptyState } from "./components/EmptyState";
+import { ImageViewer } from "./components/ImageViewer";
+import type {
+  ImageOrthographicContext,
+  ImageOrthographicState,
+} from "./zarr/profiles/image-orthographic/types";
 import { formatNumber } from "./components/RangeSlider";
 import { FullscreenButton } from "./components/FullscreenButton";
 import { ArrayOverview, StructureSection } from "./components/StructurePanel";
@@ -513,6 +518,15 @@ export default function App() {
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      {profile?.host === "image" ? (
+        profileCtx && profileState ? (
+          <ImageViewer
+            ctx={profileCtx as ImageOrthographicContext}
+            state={profileState as ImageOrthographicState}
+            opacity={state.opacity}
+          />
+        ) : null
+      ) : (
       <MaplibreMap
         ref={mapRef}
         initialViewState={
@@ -565,6 +579,7 @@ export default function App() {
           onDeviceInitialized={setDevice}
         />
       </MaplibreMap>
+      )}
 
       {profile && profileCtx && profileState && (
         <ControlsPanel
