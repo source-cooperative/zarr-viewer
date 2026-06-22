@@ -50,68 +50,118 @@ type Props = {
   codecs: CodecSummary | null;
 };
 
-export function StructurePanel({
+/** Always-visible orientation block at the top of the Options panel: the
+ * store's identity (URL / format) and a compact dimensions table pairing each
+ * dimension's shape with its chunk size. Sits above the Data controls. */
+export function ArrayOverview({
+  state,
+  group,
+  structure,
+  node,
+}: {
+  state: ViewerState;
+  group: zarr.Group<zarr.Readable>;
+  structure: StructureProfileSummary;
+  node: Props["node"];
+}) {
+  const icechunk = asIcechunk(group.store);
+  const consolidated = asConsolidated(group.store) !== null;
+  return (
+    <>
+      <StoreSection
+        url={state.url}
+        zarrVersion={structure.zarrVersion}
+        consolidated={consolidated}
+        icechunk={icechunk}
+      />
+      <DimensionsTable node={node} />
+    </>
+  );
+}
+
+/** Store-introspection content, rendered as a collapsible section inside the
+ * Options panel (below "View"). Open/closed state is mirrored to the URL via
+ * `panelStructure` (the `?structure=` param). */
+export function StructureSection({
   state,
   update,
-  group,
   node,
   structure,
   codecs,
 }: Props) {
   const isOpen = state.panelStructure === "open";
-  const icechunk = asIcechunk(group.store);
-  const consolidated = asConsolidated(group.store) !== null;
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 16,
-        left: 16,
-        width: 360,
-        maxHeight: "calc(100vh - 32px)",
-        overflow: "auto",
-        zIndex: 5,
-      }}
+    <details
+      className="section"
+      open={isOpen}
+      onToggle={(e) =>
+        update({
+          panelStructure: (e.target as HTMLDetailsElement).open
+            ? ("open" as PanelState)
+            : ("closed" as PanelState),
+        })
+      }
     >
-      <details
-        className="panel"
-        open={isOpen}
-        onToggle={(e) =>
-          update({
-            panelStructure: (e.target as HTMLDetailsElement).open
-              ? ("open" as PanelState)
-              : ("closed" as PanelState),
-          })
-        }
-        style={{ padding: 12 }}
-      >
-        <summary style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="panel-header">Structure</span>
-          <span
-            className="mono"
-            style={{
-              color: "var(--text-muted)",
-              fontSize: 11,
-              textTransform: "none",
-            }}
-          >
-            Zarr {structure.zarrVersion}
-          </span>
-        </summary>
+      <summary>
+        <span className="section-title">Structure</span>
+        <span
+          className="mono"
+          style={{
+            color: "var(--text-muted)",
+            fontSize: 11,
+            textTransform: "none",
+            marginLeft: 8,
+          }}
+        >
+          Zarr {structure.zarrVersion}
+        </span>
+      </summary>
 
-        <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-          <StoreSection
-            url={state.url}
-            zarrVersion={structure.zarrVersion}
-            consolidated={consolidated}
-            icechunk={icechunk}
-          />
-          <VariableSection structure={structure} node={node} />
-          <ShardingSection codecs={codecs} />
-          <GeoZarrSection structure={structure} />
-          <AttributesSection node={node} />
-        </div>
-      </details>
+      <div className="section-body">
+        <VariableSection structure={structure} node={node} />
+        <ShardingSection codecs={codecs} />
+        <GeoZarrSection structure={structure} />
+        <AttributesSection node={node} />
+      </div>
+    </details>
+  );
+}
+
+/** Compact table pairing each dimension's shape with its chunk length. Replaces
+ * the standalone Shape / Chunks rows that used to live in the Variable section.
+ * Rows are dimensions so the table stays narrow regardless of rank. */
+function DimensionsTable({ node }: { node: Props["node"] }) {
+  const arr = node && "kind" in node && node.kind === "array" ? node : null;
+  return (
+    <div className="section">
+      <span className="section-title">Dimensions</span>
+      {arr ? (
+        <table className="dim-table">
+          <thead>
+            <tr>
+              <th>Dim</th>
+              <th>Shape</th>
+              <th>Chunks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {arr.shape.map((s, i) => {
+              const name = arr.dimensionNames?.[i] ?? `dim ${i}`;
+              return (
+                <tr key={`${name}-${i}`}>
+                  <td>{name}</td>
+                  <td className="mono">{s}</td>
+                  <td className="mono">{arr.chunks[i]}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <span className="meta-muted" style={{ marginTop: 6 }}>
+          —
+        </span>
+      )}
     </div>
   );
 }
@@ -238,24 +288,18 @@ function VariableSection({
   structure: StructureProfileSummary;
   node: Props["node"];
 }) {
-  const [primary, ...rest] = structure.variables;
+  // `Path` is intentionally omitted — the active variable is already named by
+  // the Data controls above, so repeating it here is redundant. Shape/Chunks
+  // moved to the DimensionsTable in the overview block.
+  const [, ...rest] = structure.variables;
   const arr = node && "kind" in node && node.kind === "array" ? node : null;
-  const shape = arr ? arr.shape : null;
   const chunks = arr ? arr.chunks : null;
   const dtype = arr ? arr.dtype : null;
-  const dimensionNames = arr ? arr.dimensionNames ?? null : null;
   const fillValue = arr ? formatFillValue(arr.fillValue) : null;
   return (
     <div className="section">
       <span className="section-title">Variable</span>
       <dl className="meta-kv" style={{ marginTop: 6 }}>
-        <KV label="Path">{primary.path}</KV>
-        <KV label="Shape">
-          {shape ? formatShape(shape, dimensionNames) : "—"}
-        </KV>
-        <KV label="Chunks">
-          {chunks ? formatShape(chunks, dimensionNames) : "—"}
-        </KV>
         <KV
           label="Chunk size"
           info="Estimated uncompressed size of one chunk = product of the chunk dimensions × the dtype's byte width. This is the data a client must decode (and hold in memory) to read any element in the chunk; the bytes actually stored/transferred are smaller after compression."
@@ -443,17 +487,6 @@ function SourceBadge({ source }: { source: GeoZarrMetadataSource }) {
       {source}
     </span>
   );
-}
-
-function formatShape(
-  shape: readonly number[],
-  dimNames: readonly string[] | null,
-): string {
-  if (!dimNames || dimNames.length !== shape.length) {
-    return `[${shape.join(", ")}]`;
-  }
-  const parts = shape.map((n, i) => `${n} ${dimNames[i]}`);
-  return `[${parts.join(", ")}]`;
 }
 
 function formatFillValue(v: unknown): string {

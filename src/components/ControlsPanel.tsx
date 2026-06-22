@@ -45,6 +45,13 @@ type Props = {
   profileInstantSlot: ReactNode;
   /** Profile display-only controls (e.g. AEF rescale). `null` when none. */
   profileStyleSlot: ReactNode;
+  /** Always-visible store identity + dimensions table, shown above the Data
+   * controls. `null` while the structure summary is still resolving. */
+  overviewSlot: ReactNode;
+  /** Store-introspection content (the former Structure panel), rendered as a
+   * collapsible section below "View". `null` while the structure summary is
+   * still resolving. */
+  structureSlot: ReactNode;
   /** Profile name shown in the panel title. */
   profileLabel: string | null;
   /** Whether to show single-band colormap + rescale controls. */
@@ -61,6 +68,8 @@ export function ControlsPanel({
   profileFetchSlot,
   profileInstantSlot,
   profileStyleSlot,
+  overviewSlot,
+  structureSlot,
   profileLabel,
   showSingleBandControls,
   autoStats,
@@ -68,17 +77,7 @@ export function ControlsPanel({
 }: Props) {
   const isOpen = state.panel === "open";
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 16,
-        right: 16,
-        width: 320,
-        maxHeight: "calc(100vh - 32px)",
-        overflow: "auto",
-        zIndex: 5,
-      }}
-    >
+    <div className="controls-panel">
       <details
         className="panel"
         open={isOpen}
@@ -106,6 +105,8 @@ export function ControlsPanel({
         </summary>
 
         <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+          {overviewSlot}
+
           <ControlGroup
             variant="fetch"
             title="Data · re-reads on change"
@@ -223,6 +224,8 @@ export function ControlsPanel({
               <LocationPicker state={state} update={update} onFlyTo={onFlyTo} />
             </div>
           </div>
+
+          {structureSlot}
         </div>
       </details>
     </div>

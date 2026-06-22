@@ -23,7 +23,7 @@ import { ControlsPanel } from "./components/ControlsPanel";
 import { EmptyState } from "./components/EmptyState";
 import { formatNumber } from "./components/RangeSlider";
 import { FullscreenButton } from "./components/FullscreenButton";
-import { StructurePanel } from "./components/StructurePanel";
+import { ArrayOverview, StructureSection } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
 import { createLogger } from "./log";
@@ -604,17 +604,28 @@ export default function App() {
             onFlyTo: handleFlyTo,
             group: "styling",
           })}
-        />
-      )}
-
-      {profileCtx && structureSummary && (
-        <StructurePanel
-          state={state}
-          update={update}
-          group={profileCtx.group}
-          node={node}
-          structure={structureSummary}
-          codecs={codecSummary}
+          overviewSlot={
+            structureSummary ? (
+              <ArrayOverview
+                state={state}
+                group={profileCtx.group}
+                structure={structureSummary}
+                node={node}
+              />
+            ) : null
+          }
+          structureSlot={
+            structureSummary ? (
+              <StructureSection
+                state={state}
+                update={update}
+                group={profileCtx.group}
+                node={node}
+                structure={structureSummary}
+                codecs={codecSummary}
+              />
+            ) : null
+          }
         />
       )}
 

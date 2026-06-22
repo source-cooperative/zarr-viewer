@@ -220,6 +220,28 @@ a {
   color: var(--text);
 }
 
+/* Options panel: anchored top-right on desktop. On narrow screens it spans the
+ * full width (with small gutters) and bounds its height so the long Structure
+ * section scrolls within the panel rather than off-screen. */
+.controls-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 320px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  z-index: 5;
+}
+@media (max-width: 480px) {
+  .controls-panel {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: calc(100vh - 16px);
+  }
+}
+
 .map-icon-button {
   width: 36px;
   height: 36px;
@@ -275,6 +297,39 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text);
+}
+
+/* Shape↔chunks table in the overview block. Rows are dimensions; the numeric
+ * Shape / Chunks columns are right-aligned so digits line up. */
+.dim-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.dim-table th {
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.dim-table th,
+.dim-table td {
+  text-align: left;
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dim-table th:last-child,
+.dim-table td:last-child {
+  padding-right: 0;
+}
+.dim-table th:nth-child(n + 2),
+.dim-table td:nth-child(n + 2) {
+  text-align: right;
+}
+.dim-table tr:last-child td {
+  border-bottom: none;
 }
 
 details.section > summary,
