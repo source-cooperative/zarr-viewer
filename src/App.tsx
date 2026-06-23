@@ -531,7 +531,6 @@ export default function App() {
     tileActivity.getSnapshot,
   );
 
-  const profileLabel = profile?.label ?? null;
   const showSingleBandControls = profile?.needsColormap ?? false;
   // Non-geographic image profiles (OrthographicView host) hide map-only
   // chassis controls (basemap, location presets, GeoZarr metadata).
@@ -607,7 +606,6 @@ export default function App() {
         <ControlsPanel
           state={state}
           update={update}
-          profileLabel={profileLabel}
           showSingleBandControls={showSingleBandControls}
           geographic={geographic}
           autoStats={autoStats}

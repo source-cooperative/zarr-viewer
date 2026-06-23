@@ -52,8 +52,6 @@ type Props = {
    * collapsible section below "View". `null` while the structure summary is
    * still resolving. */
   structureSlot: ReactNode;
-  /** Profile name shown in the panel title. */
-  profileLabel: string | null;
   /** Whether to show single-band colormap + rescale controls. */
   showSingleBandControls: boolean;
   /** False for non-geographic (image) hosts — hides map-only controls
@@ -73,7 +71,6 @@ export function ControlsPanel({
   profileStyleSlot,
   overviewSlot,
   structureSlot,
-  profileLabel,
   showSingleBandControls,
   geographic,
   autoStats,
@@ -94,18 +91,6 @@ export function ControlsPanel({
       >
         <summary style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="panel-header">Options</span>
-          {profileLabel && (
-            <span
-              className="mono"
-              style={{
-                color: "var(--text-muted)",
-                fontSize: 11,
-                textTransform: "none",
-              }}
-            >
-              {profileLabel}
-            </span>
-          )}
         </summary>
 
         <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
