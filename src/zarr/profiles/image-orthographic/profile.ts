@@ -1,6 +1,9 @@
+import * as zarr from "zarrita";
+import { autoStatsFromGlobal, buildBandStats } from "../../../render/stats";
 import { openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
 import { ImageOrthographicControls } from "./controls";
+import { buildSelection } from "./lod";
 import { parseOme } from "./ome";
 import type {
   ImageOrthographicContext,
@@ -53,7 +56,13 @@ export const imageOrthographicProfile: ZarrProfile<
     // z / time axes start at index 0.
     const indices: Record<string, number> = {};
     for (const a of ctx.otherAxes) indices[a.name] = 0;
-    return { channel: firstActive >= 0 ? firstActive : 0, indices };
+    return {
+      channel: firstActive >= 0 ? firstActive : 0,
+      indices,
+      colormap: "gray",
+      gamma: 1,
+      rescale: null, // auto (percentile) — see computeAutoStats
+    };
   },
 
   parseUrlParams(p) {
@@ -68,11 +77,32 @@ export const imageOrthographicProfile: ZarrProfile<
       }
     }
     if (Object.keys(indices).length > 0) out.indices = indices;
+    const cmap = p.get("colormap");
+    if (cmap) out.colormap = cmap;
+    const gamma = p.get("gamma");
+    if (gamma !== null && Number.isFinite(Number(gamma))) out.gamma = Number(gamma);
+    const rmin = p.get("rmin");
+    const rmax = p.get("rmax");
+    if (
+      rmin !== null &&
+      rmax !== null &&
+      Number.isFinite(Number(rmin)) &&
+      Number.isFinite(Number(rmax))
+    ) {
+      out.rescale = [Number(rmin), Number(rmax)];
+    }
     return out;
   },
 
   serializeUrlParams(s) {
-    const out: Record<string, string | null> = { c: String(s.channel) };
+    const out: Record<string, string | null> = {
+      c: String(s.channel),
+      colormap: s.colormap,
+      gamma: String(s.gamma),
+      // null clears the param (back to auto).
+      rmin: s.rescale ? String(s.rescale[0]) : null,
+      rmax: s.rescale ? String(s.rescale[1]) : null,
+    };
     for (const [name, idx] of Object.entries(s.indices)) {
       out[`dim.${name}`] = String(idx);
     }
@@ -88,6 +118,28 @@ export const imageOrthographicProfile: ZarrProfile<
   // Rendering happens in ImageViewer (OrthographicView), not via a deck.gl
   // layer in the map overlay.
   buildLayer: () => null,
+
+  // Stats over the coarsest level for the current channel/z/t — drives the
+  // rescale slider's bounds + auto (percentile) default. Recomputed only when
+  // the selection changes (statsDeps), not on styling tweaks.
+  statsDeps: (s) => [s.channel, JSON.stringify(s.indices)],
+  async computeAutoStats({ ctx, state, signal }) {
+    const level = ctx.levels[ctx.levels.length - 1]!;
+    const sel = buildSelection(
+      ctx.axes,
+      ctx.channelAxisIndex,
+      ctx.spatialAxes,
+      state.channel,
+      state.indices,
+    );
+    const chunk = await zarr.get(
+      level.array as zarr.Array<zarr.NumberDataType, zarr.Readable>,
+      sel,
+      { signal },
+    );
+    const stats = buildBandStats(chunk.data as ArrayLike<number>, null);
+    return stats ? autoStatsFromGlobal(stats) : null;
+  },
 
   getStructure: (ctx) => ({
     zarrVersion: "v3",

@@ -68,4 +68,12 @@ export type ImageOrthographicState = {
   /** Pinned index for each non-spatial, non-channel axis (z / time), keyed by
    * axis name. */
   indices: Record<string, number>;
+  /** Colormap name (from deck.gl-raster's COLORMAP_INDEX; "gray" = grayscale). */
+  colormap: string;
+  /** Display gamma; >1 brightens, <1 darkens, 1 = linear. */
+  gamma: number;
+  /** Intensity window [min, max] in raw units. `null` = auto (a 2–98%
+   * percentile of the data), which is the default and avoids the "everything
+   * dark" look when a store's omero window is set wide. */
+  rescale: [number, number] | null;
 };

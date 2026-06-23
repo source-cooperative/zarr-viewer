@@ -524,6 +524,7 @@ export default function App() {
             ctx={profileCtx as ImageOrthographicContext}
             state={profileState as ImageOrthographicState}
             opacity={state.opacity}
+            autoStats={autoStats}
           />
         ) : null
       ) : (
