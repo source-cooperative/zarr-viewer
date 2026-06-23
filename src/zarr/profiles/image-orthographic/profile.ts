@@ -158,6 +158,8 @@ export const imageOrthographicProfile: ZarrProfile<
     return stats ? autoStatsFromGlobal(stats) : null;
   },
 
+  pyramidLevelCount: (ctx) => ctx.levels.length,
+
   getStructure: (ctx) => ({
     zarrVersion: ctx.zarrVersion,
     variables: [{ path: ctx.finestVariablePath }],

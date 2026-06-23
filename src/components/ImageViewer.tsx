@@ -10,6 +10,7 @@ import {
   buildBandStats,
   percentileFromHistogram,
 } from "../render/stats";
+import { setActiveLevel, tileLoadEnd, tileLoadStart } from "../render/tile-activity";
 import {
   buildWindowSelection,
   computeWindow,
@@ -204,6 +205,7 @@ export function ImageViewer({
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       void (async () => {
+        tileLoadStart();
         try {
           let { x0, y0, x1, y1 } = viewWindow;
           // Safety clamp: shrink an oversized window around its center.
@@ -252,6 +254,8 @@ export function ImageViewer({
           if (ctrl.signal.aborted) return;
           log.error("window load failed", err);
           setStatus("error");
+        } finally {
+          tileLoadEnd();
         }
       })();
     }, REFETCH_DEBOUNCE_MS);
@@ -262,6 +266,15 @@ export function ImageViewer({
     // state.indices read inside; captured by indicesKey via windowKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowKey, ctx, targetLevel]);
+
+  // Report the displayed level to the badge as soon as the zoom picks a new
+  // target level — before its window finishes loading. ctx.levels are
+  // finest-first (index 0 = finest), so displayIndex = N - level (1 = coarsest).
+  useEffect(() => {
+    const lvl = ctx.levels[targetLevel];
+    if (!lvl) return;
+    setActiveLevel(ctx.levels.length - targetLevel, lvl.downsample);
+  }, [targetLevel, ctx.levels]);
 
   // Drop the cache when the store changes.
   useEffect(() => {

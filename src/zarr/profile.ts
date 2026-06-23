@@ -117,6 +117,10 @@ export type ZarrProfile<
   /** Describe the store/variable shape currently being rendered. Used
    * by the Structure panel; pure function of `ctx` + `state`. */
   getStructure: (ctx: Ctx, state: S) => StructureProfileSummary;
+  /** Number of pyramid levels for a multiscale store, used by the level badge.
+   * Return `null` (or omit) for single-level / non-multiscale stores so the
+   * badge shows no level. */
+  pyramidLevelCount?: (ctx: Ctx) => number | null;
   computeAutoStats?: (args: {
     ctx: Ctx;
     state: S;
