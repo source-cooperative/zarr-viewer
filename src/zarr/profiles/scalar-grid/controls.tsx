@@ -1,5 +1,6 @@
 import { DebouncedSlider } from "../../../components/DebouncedSlider";
 import { StepperRange } from "../../../components/StepperRange";
+import { dimTint, tintLabelStyle } from "../../dim-colors";
 import type { ProfileControlsProps } from "../../profile";
 import { defaultDimIndices, type ScalarGridContext, type ScalarGridState } from "./types";
 
@@ -15,6 +16,10 @@ export function ScalarGridControls({
   // re-slices + re-uploads (no fetch/decode), so they belong with the instant
   // (texture) dim rather than the re-read dims.
   const memNames = new Set(activeVar?.memoryDims.map((d) => d.name) ?? []);
+  // Full ordered list of this variable's non-spatial dims — the same order the
+  // Dimensions table uses — so each dim gets a distinct tint that matches its
+  // table row (see dimTint).
+  const tintOrder = (activeVar?.dims ?? []).map((d) => d.name);
 
   const sliderFor = (
     dim: { name: string; size: number },
@@ -26,6 +31,8 @@ export function ScalarGridControls({
     // CF-decoded label (date / duration / value) when available, else index.
     const format =
       ctx.dimLabel[dim.name] ?? ((v: number) => `${v} / ${dim.size - 1}`);
+    // Pair the slider with its Dimensions-table row via a shared per-dim tint.
+    const tint = dimTint(dim.name, tintOrder);
     if (mode === "live") {
       // "(live)" when the whole dim is GPU-resident; "(live · N/win)" when only
       // a window of N frames is loaded at a time (crossing a window refetches).
@@ -42,6 +49,7 @@ export function ScalarGridControls({
           max={Math.max(0, dim.size - 1)}
           onChange={onChange}
           formatValue={format}
+          tint={tint}
         />
       );
     }
@@ -56,6 +64,7 @@ export function ScalarGridControls({
         max={Math.max(0, dim.size - 1)}
         onCommit={onChange}
         formatValue={format}
+        tint={tint}
       />
     );
   };
@@ -123,6 +132,7 @@ function LiveSlider({
   max,
   onChange,
   formatValue,
+  tint,
 }: {
   label: string;
   value: number;
@@ -130,9 +140,10 @@ function LiveSlider({
   max: number;
   onChange: (next: number) => void;
   formatValue: (v: number) => string;
+  tint?: string;
 }) {
   return (
-    <label style={{ display: "grid", gap: 2 }}>
+    <label style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}

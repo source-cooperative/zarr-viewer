@@ -3,6 +3,7 @@ import colormapsPngUrl from "@developmentseed/deck.gl-raster/gpu-modules/colorma
 import { ColormapPicker, type ColormapOption } from "../../../components/ColormapPicker";
 import { RangeSlider } from "../../../components/RangeSlider";
 import { StepperRange } from "../../../components/StepperRange";
+import { dimTint, tintLabelStyle } from "../../dim-colors";
 import { percentileFromHistogram } from "../../../render/stats";
 import type { ProfileControlsProps } from "../../profile";
 import type { ImageOrthographicContext, ImageOrthographicState } from "./types";
@@ -70,6 +71,9 @@ export function ImageOrthographicControls({
   const scrubAxes = ctx.otherAxes.filter((a) => a.size > 1);
   if (ctx.channelCount <= 1 && scrubAxes.length === 0) return null;
 
+  // Ordered non-spatial axis names — drives distinct, table-matched tints.
+  const tintOrder = ctx.otherAxes.map((a) => a.name);
+
   const channelLabel =
     ctx.channels[state.channel]?.label ?? `channel ${state.channel}`;
   return (
@@ -89,6 +93,7 @@ export function ImageOrthographicControls({
           label={axis.name}
           value={state.indices[axis.name] ?? 0}
           max={axis.size - 1}
+          tint={dimTint(axis.name, tintOrder)}
           onChange={(v) =>
             update({ indices: { ...state.indices, [axis.name]: v } })
           }
@@ -103,16 +108,18 @@ function AxisSlider({
   value,
   max,
   valueLabel,
+  tint,
   onChange,
 }: {
   label: string;
   value: number;
   max: number;
   valueLabel?: string;
+  tint?: string;
   onChange: (next: number) => void;
 }) {
   return (
-    <label style={{ display: "grid", gap: 2 }}>
+    <label style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}

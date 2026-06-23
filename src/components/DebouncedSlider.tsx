@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { StepperRange } from "./StepperRange";
+import { tintLabelStyle } from "../zarr/dim-colors";
 
 const COMMIT_DELAY_MS = 200;
 
@@ -13,6 +14,9 @@ type Props = {
   onCommit: (next: number) => void;
   /** Formatter for the right-aligned value badge. */
   formatValue?: (v: number) => string;
+  /** Optional subtle background tint pairing this slider with its row in the
+   * Dimensions table (see {@link dimTint}). */
+  tint?: string;
 };
 
 /**
@@ -29,6 +33,7 @@ export function DebouncedSlider({
   max,
   onCommit,
   formatValue,
+  tint,
 }: Props) {
   const [draft, setDraft] = useState(value);
 
@@ -48,7 +53,7 @@ export function DebouncedSlider({
 
   const display = formatValue ? formatValue(draft) : String(draft);
   return (
-    <label style={{ display: "grid", gap: 2 }}>
+    <label style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}

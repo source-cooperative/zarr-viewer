@@ -11,6 +11,7 @@ import type {
   ViewerStateUpdate,
 } from "../state/types";
 import { InfoIcon } from "./Tooltip";
+import { dimTint } from "../zarr/dim-colors";
 
 /** Top-level keys we render with their canonical labels under GeoZarr.
  * Any *other* top-level key in the metadata is dumped to a generic
@@ -77,7 +78,7 @@ export function ArrayOverview({
         consolidated={consolidated}
         icechunk={icechunk}
       />
-      <DimensionsTable node={node} />
+      <DimensionsTable node={node} structure={structure} />
     </>
   );
 }
@@ -134,8 +135,25 @@ export function StructureSection({
 /** Compact table pairing each dimension's shape with its chunk length. Replaces
  * the standalone Shape / Chunks rows that used to live in the Variable section.
  * Rows are dimensions so the table stays narrow regardless of rank. */
-function DimensionsTable({ node }: { node: Props["node"] }) {
+function DimensionsTable({
+  node,
+  structure,
+}: {
+  node: Props["node"];
+  structure: StructureProfileSummary;
+}) {
   const arr = node && "kind" in node && node.kind === "array" ? node : null;
+  const spatial = arr ? spatialDimNames(structure) : null;
+  // x/y are scrubbed via the map, not a slider — leave them plain. Resolve
+  // every dim's name up front so we can hand the ordered list of non-spatial
+  // names to dimTint: that's what makes each row a *distinct* color and keeps
+  // it matched to its slider (the controls pass the same ordered list).
+  const names = arr
+    ? arr.shape.map((_, i) => arr.dimensionNames?.[i] ?? `dim ${i}`)
+    : [];
+  const isSpatialAt = (i: number) =>
+    spatial ? spatial.has(names[i]) : i >= names.length - 2;
+  const tintOrder = names.filter((_, i) => !isSpatialAt(i));
   return (
     <div className="section">
       <span className="section-title">Dimensions</span>
@@ -150,9 +168,15 @@ function DimensionsTable({ node }: { node: Props["node"] }) {
           </thead>
           <tbody>
             {arr.shape.map((s, i) => {
-              const name = arr.dimensionNames?.[i] ?? `dim ${i}`;
+              const name = names[i];
+              // Every non-spatial dim gets its slider's tint so the row and the
+              // slider read as a pair.
+              const tint = isSpatialAt(i) ? undefined : dimTint(name, tintOrder);
               return (
-                <tr key={`${name}-${i}`}>
+                <tr
+                  key={`${name}-${i}`}
+                  style={tint ? { background: tint } : undefined}
+                >
                   <td>{name}</td>
                   <td className="mono">{s}</td>
                   <td className="mono">{arr.chunks[i]}</td>
@@ -553,4 +577,17 @@ function formatJson(v: unknown): string {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** The store's spatial (x/y) dimension names, read from the profile's
+ * `spatial:dimensions` GeoZarr attr. Returns null when the profile doesn't
+ * expose them (e.g. non-geographic hosts) — callers then fall back to treating
+ * the trailing two dims as spatial. */
+function spatialDimNames(structure: StructureProfileSummary): Set<string> | null {
+  const meta = structure.metadata;
+  if (!isRecord(meta)) return null;
+  const dims = meta["spatial:dimensions"];
+  if (!Array.isArray(dims)) return null;
+  const names = dims.filter((d): d is string => typeof d === "string");
+  return names.length > 0 ? new Set(names) : null;
 }
