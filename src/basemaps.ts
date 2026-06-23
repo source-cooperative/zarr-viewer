@@ -50,15 +50,3 @@ export function resolveBasemap(
   }
 }
 
-export function isDarkChrome(choice: Basemap, prefersDark: boolean): boolean {
-  switch (choice) {
-    case "dark":
-    case "satellite":
-    case "off":
-      return true;
-    case "light":
-      return false;
-    case "auto":
-      return prefersDark;
-  }
-}

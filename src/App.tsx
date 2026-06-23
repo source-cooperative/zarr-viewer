@@ -18,7 +18,7 @@ import {
 import type * as zarr from "zarrita";
 import type { MapRef } from "react-map-gl/maplibre";
 import { Map as MaplibreMap, useControl } from "react-map-gl/maplibre";
-import { isDarkChrome, resolveBasemap } from "./basemaps";
+import { resolveBasemap } from "./basemaps";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { EmptyState } from "./components/EmptyState";
 import { ImageViewer } from "./components/ImageViewer";
@@ -510,10 +510,9 @@ export default function App() {
     [updateParams, handleFlyTo],
   );
 
-  const darkChrome = isDarkChrome(state.basemap, prefersDark);
   useEffect(() => {
-    document.documentElement.classList.toggle("theme-dark", darkChrome);
-  }, [darkChrome]);
+    document.documentElement.classList.toggle("theme-dark", prefersDark);
+  }, [prefersDark]);
 
   // Tell the pyramid badge how many levels this store has (null = single-level/
   // non-multiscale → no level shown). Reset on store/profile change.
