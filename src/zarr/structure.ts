@@ -21,7 +21,7 @@ export type ConventionEntry = {
  *
  * Checks three sources:
  *   - The standard `Conventions` string attr (CF, ACDD, UGRID, …).
- *   - The `multiscales` array attr (OME-Zarr).
+ *   - An OME-Zarr `multiscales` array attr (identified by its `axes` field).
  *   - `spatial:*` / `proj:*` keys (GeoZarr).
  */
 export function detectConventions(
@@ -37,14 +37,19 @@ export function detectConventions(
     }
   }
 
+  // The `multiscales` key is NOT unique to OME-Zarr: the CF/rioxarray
+  // multiscale-pyramid convention (e.g. Meta CHM, xarray-multiscale) reuses it
+  // for geospatial pyramids. OME-NGFF multiscale entries always carry an `axes`
+  // array (spec-required since v0.3); the CF convention has none. Gate on `axes`
+  // so a geospatial pyramid isn't mislabeled as OME-Zarr bioimaging.
   const multiscales = attrs["multiscales"];
   if (Array.isArray(multiscales) && multiscales.length > 0) {
     const first = multiscales[0];
-    const version =
-      isObject(first) && typeof first["version"] === "string"
-        ? first["version"]
-        : null;
-    result.push({ name: "OME-Zarr", version });
+    if (isObject(first) && Array.isArray(first["axes"])) {
+      const version =
+        typeof first["version"] === "string" ? first["version"] : null;
+      result.push({ name: "OME-Zarr", version });
+    }
   }
 
   const hasGeoZarr = Object.keys(attrs).some(

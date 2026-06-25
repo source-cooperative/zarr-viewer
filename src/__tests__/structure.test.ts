@@ -32,16 +32,20 @@ describe("detectConventions", () => {
     ]);
   });
 
-  it("detects OME-Zarr from multiscales attr with version", () => {
+  it("detects OME-Zarr from a multiscales attr with `axes` and version", () => {
     expect(
-      detectConventions({ multiscales: [{ version: "0.5" }] }),
+      detectConventions({
+        multiscales: [
+          { version: "0.5", axes: [{ name: "y", type: "space" }] },
+        ],
+      }),
     ).toEqual([{ name: "OME-Zarr", version: "0.5" }]);
   });
 
-  it("detects OME-Zarr without version when version is missing", () => {
-    expect(detectConventions({ multiscales: [{}] })).toEqual([
-      { name: "OME-Zarr", version: null },
-    ]);
+  it("detects OME-Zarr (null version) from `axes` when version is missing", () => {
+    expect(
+      detectConventions({ multiscales: [{ axes: [{ name: "y" }] }] }),
+    ).toEqual([{ name: "OME-Zarr", version: null }]);
   });
 
   it("detects GeoZarr from spatial: attr key", () => {
@@ -57,7 +61,7 @@ describe("detectConventions", () => {
   it("combines all three sources", () => {
     const attrs = {
       Conventions: "CF-1.8",
-      multiscales: [{ version: "0.4" }],
+      multiscales: [{ version: "0.4", axes: [{ name: "y", type: "space" }] }],
       "spatial:dimensions": ["x", "y"],
     };
     expect(detectConventions(attrs)).toEqual([
@@ -65,6 +69,27 @@ describe("detectConventions", () => {
       { name: "OME-Zarr", version: "0.4" },
       { name: "GeoZarr", version: null },
     ]);
+  });
+
+  it("does not flag a CF/rioxarray multiscale pyramid (no `axes`) as OME-Zarr", () => {
+    // Meta CHM v2 shape: the `multiscales` key is reused by the CF
+    // multiscale-pyramid convention (datasets[].downscale_factor + a top-level
+    // `type`), which has no OME-Zarr `axes`. OME-Zarr must NOT be reported —
+    // only the declared CF convention.
+    const attrs = {
+      Conventions: "CF-1.10",
+      multiscales: [
+        {
+          name: "chm",
+          datasets: [
+            { path: "64x", downscale_factor: 64 },
+            { path: "1x", downscale_factor: 1 },
+          ],
+          type: "average",
+        },
+      ],
+    };
+    expect(detectConventions(attrs)).toEqual([{ name: "CF", version: "1.10" }]);
   });
 });
 

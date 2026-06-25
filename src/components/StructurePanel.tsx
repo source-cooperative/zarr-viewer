@@ -241,7 +241,7 @@ function StoreSection({
         {conventions.length > 0 && (
           <KV
             label="Conventions"
-            info="Zarr conventions declared in the store's root group attributes. CF (Climate and Forecast) conventions are signaled via a 'Conventions' attribute; OME-Zarr is identified by a 'multiscales' attribute; GeoZarr by 'spatial:*' or 'proj:code' attributes."
+            info="Zarr conventions declared in the store's root group attributes. CF (Climate and Forecast) conventions are signaled via a 'Conventions' attribute; OME-Zarr by a 'multiscales' attribute carrying an 'axes' field (a 'multiscales' attribute without 'axes' is the CF/GeoZarr multiscale-pyramid convention, not OME-Zarr); GeoZarr by 'spatial:*' or 'proj:code' attributes."
           >
             {conventions
               .map((c) => (c.version ? `${c.name}-${c.version}` : c.name))
