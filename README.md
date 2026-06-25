@@ -1,4 +1,4 @@
-# geozarr-viewer
+# zarr-viewer
 
 Live: <https://tylere.github.io/geozarr-viewer/>
 
