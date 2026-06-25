@@ -2,9 +2,11 @@ import type * as zarr from "zarrita";
 import { asConsolidated, asIcechunk, type IcechunkInfo } from "../zarr/load-zarr";
 import type {
   CodecSummary,
+  ConventionEntry,
   GeoZarrMetadataSource,
   StructureProfileSummary,
 } from "../zarr/structure";
+import { detectConventions } from "../zarr/structure";
 import type {
   PanelState,
   ViewerState,
@@ -70,6 +72,7 @@ export function ArrayOverview({
 }) {
   const icechunk = asIcechunk(group.store);
   const consolidated = asConsolidated(group.store) !== null;
+  const conventions = detectConventions(group.attrs);
   return (
     <>
       <StoreSection
@@ -77,6 +80,7 @@ export function ArrayOverview({
         zarrVersion={structure.zarrVersion}
         consolidated={consolidated}
         icechunk={icechunk}
+        conventions={conventions}
       />
       <DimensionsTable node={node} structure={structure} />
     </>
@@ -199,11 +203,13 @@ function StoreSection({
   zarrVersion,
   consolidated,
   icechunk,
+  conventions,
 }: {
   url: string | null;
   zarrVersion: "v2" | "v3";
   consolidated: boolean;
   icechunk: IcechunkInfo | null;
+  conventions: ConventionEntry[];
 }) {
   return (
     <div className="section">
@@ -230,6 +236,16 @@ function StoreSection({
             info="Whether the store ships a pre-built 'table of contents' that lists every node's metadata in one file. With consolidated metadata, the client opens sub-arrays without an extra HTTP request — important for stores with many variables. Without it, every zarr.open() of a sub-array is its own round trip."
           >
             <YesNoPill value={consolidated} />
+          </KV>
+        )}
+        {conventions.length > 0 && (
+          <KV
+            label="Conventions"
+            info="Zarr conventions declared in the store's root group attributes. CF (Climate and Forecast) conventions are signaled via a 'Conventions' attribute; OME-Zarr is identified by a 'multiscales' attribute; GeoZarr by 'spatial:*' or 'proj:code' attributes."
+          >
+            {conventions
+              .map((c) => (c.version ? `${c.name}-${c.version}` : c.name))
+              .join(", ")}
           </KV>
         )}
       </dl>

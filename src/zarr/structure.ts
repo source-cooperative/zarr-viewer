@@ -10,6 +10,51 @@
  * expose codec details on the public `Array` surface).
  */
 
+/** A single detected Zarr convention (name + optional version string). */
+export type ConventionEntry = {
+  name: string;
+  version: string | null;
+};
+
+/**
+ * Detect Zarr conventions used by the root group from its attributes.
+ *
+ * Checks three sources:
+ *   - The standard `Conventions` string attr (CF, ACDD, UGRID, …).
+ *   - The `multiscales` array attr (OME-Zarr).
+ *   - `spatial:*` / `proj:*` keys (GeoZarr).
+ */
+export function detectConventions(
+  attrs: Record<string, unknown>,
+): ConventionEntry[] {
+  const result: ConventionEntry[] = [];
+
+  const conv = attrs["Conventions"];
+  if (typeof conv === "string" && conv.trim()) {
+    for (const token of conv.split(/[\s,]+/).filter(Boolean)) {
+      const m = /^([A-Za-z][A-Za-z0-9_-]*)-(\d[\d.]*)$/.exec(token);
+      result.push(m ? { name: m[1]!, version: m[2]! } : { name: token, version: null });
+    }
+  }
+
+  const multiscales = attrs["multiscales"];
+  if (Array.isArray(multiscales) && multiscales.length > 0) {
+    const first = multiscales[0];
+    const version =
+      isObject(first) && typeof first["version"] === "string"
+        ? first["version"]
+        : null;
+    result.push({ name: "OME-Zarr", version });
+  }
+
+  const hasGeoZarr = Object.keys(attrs).some(
+    (k) => k.startsWith("spatial:") || k === "proj:code",
+  );
+  if (hasGeoZarr) result.push({ name: "GeoZarr", version: null });
+
+  return result;
+}
+
 /** Where the GeoZarr-style attrs handed to `ZarrLayer.metadata` came from. */
 export type GeoZarrMetadataSource =
   /** Already on the store at open time (AEF, FTW). */

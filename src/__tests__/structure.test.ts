@@ -1,5 +1,72 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchCodecSummary } from "../zarr/structure";
+import { detectConventions, fetchCodecSummary } from "../zarr/structure";
+
+describe("detectConventions", () => {
+  it("returns empty array for empty attrs", () => {
+    expect(detectConventions({})).toEqual([]);
+  });
+
+  it("parses a single CF convention", () => {
+    expect(detectConventions({ Conventions: "CF-1.8" })).toEqual([
+      { name: "CF", version: "1.8" },
+    ]);
+  });
+
+  it("parses multiple space-separated conventions", () => {
+    expect(detectConventions({ Conventions: "CF-1.8 ACDD-1.3" })).toEqual([
+      { name: "CF", version: "1.8" },
+      { name: "ACDD", version: "1.3" },
+    ]);
+  });
+
+  it("parses comma-separated conventions", () => {
+    expect(detectConventions({ Conventions: "CF-1.9,UGRID-1.0" })).toEqual([
+      { name: "CF", version: "1.9" },
+      { name: "UGRID", version: "1.0" },
+    ]);
+  });
+
+  it("handles convention token without version", () => {
+    expect(detectConventions({ Conventions: "MyConvention" })).toEqual([
+      { name: "MyConvention", version: null },
+    ]);
+  });
+
+  it("detects OME-Zarr from multiscales attr with version", () => {
+    expect(
+      detectConventions({ multiscales: [{ version: "0.5" }] }),
+    ).toEqual([{ name: "OME-Zarr", version: "0.5" }]);
+  });
+
+  it("detects OME-Zarr without version when version is missing", () => {
+    expect(detectConventions({ multiscales: [{}] })).toEqual([
+      { name: "OME-Zarr", version: null },
+    ]);
+  });
+
+  it("detects GeoZarr from spatial: attr key", () => {
+    const result = detectConventions({ "spatial:dimensions": ["x", "y"] });
+    expect(result).toEqual([{ name: "GeoZarr", version: null }]);
+  });
+
+  it("detects GeoZarr from proj:code attr key", () => {
+    const result = detectConventions({ "proj:code": "EPSG:4326" });
+    expect(result).toEqual([{ name: "GeoZarr", version: null }]);
+  });
+
+  it("combines all three sources", () => {
+    const attrs = {
+      Conventions: "CF-1.8",
+      multiscales: [{ version: "0.4" }],
+      "spatial:dimensions": ["x", "y"],
+    };
+    expect(detectConventions(attrs)).toEqual([
+      { name: "CF", version: "1.8" },
+      { name: "OME-Zarr", version: "0.4" },
+      { name: "GeoZarr", version: null },
+    ]);
+  });
+});
 
 const originalFetch = globalThis.fetch;
 let fetchMock: ReturnType<typeof vi.fn>;
