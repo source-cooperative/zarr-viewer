@@ -1,55 +1,32 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
 
 const _require = createRequire(import.meta.url);
 
 /**
- * When icechunk-js is installed from a GitHub tarball the compiled dist/ is
- * absent (it is .gitignore'd in the source repo and not included in the
- * archive). Resolve the import to the TypeScript source entry so Rolldown
- * (Vite 8 / Oxc) can bundle it directly with native TS support — no esbuild
- * step required.
+ * When icechunk-js is installed from a GitHub tarball the compiled dist/ may
+ * be absent (it is .gitignore'd) OR present but unresolvable by Rolldown (e.g.
+ * the package exports field uses conditions Rolldown doesn't satisfy). Always
+ * alias to the TypeScript source so Rolldown/Oxc can bundle it directly with
+ * native TS support — no esbuild step required, and dist/ issues are bypassed
+ * entirely.
  *
- * Returns null when dist/ is already present (normal npm/registry install).
+ * Returns null only when no TypeScript source entry is found (e.g. a proper
+ * npm-registry install with a pre-built dist/ and no src/ in the tarball).
  */
 function findIcechunkSourceEntry(): string | null {
   try {
     const pkgDir = dirname(_require.resolve("icechunk-js/package.json"));
-    const pkg = JSON.parse(
-      readFileSync(resolve(pkgDir, "package.json"), "utf8"),
-    ) as {
-      main?: string;
-      module?: string;
-      exports?: unknown;
-    };
 
-    // Determine the declared main entry from exports / main / module fields.
-    let mainEntry: string | undefined;
-    const exp = pkg.exports;
-    if (typeof exp === "string") {
-      mainEntry = exp;
-    } else if (exp !== null && typeof exp === "object") {
-      const dot = (exp as Record<string, unknown>)["."];
-      if (typeof dot === "string") {
-        mainEntry = dot;
-      } else if (dot !== null && typeof dot === "object") {
-        const d = dot as Record<string, string>;
-        mainEntry = d["import"] ?? d["default"] ?? d["browser"] ?? d["module"];
-      }
-    }
-    mainEntry ??= pkg.module ?? pkg.main ?? "index.js";
-
-    if (existsSync(resolve(pkgDir, mainEntry))) {
-      return null; // dist is present — normal resolution applies
-    }
-
-    // dist/ absent — locate TypeScript source entry.
+    // Prefer TypeScript source unconditionally — bypasses dist/ resolution
+    // issues regardless of whether prepare ran on Vercel.
     const candidates = [
       "src/index.ts",
       "src/index.mts",
+      "src/main.ts",
       "index.ts",
       "lib/index.ts",
     ];
