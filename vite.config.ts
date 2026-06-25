@@ -91,7 +91,10 @@ function icechunkFallbackPlugin() {
       const r = probe();
       if (r.kind !== "source") return null;
 
-      const esbuild = await import("esbuild");
+      // esbuild ships with Vite — use _require to avoid needing it as a direct
+      // devDependency (pnpm strict isolation prevents `import("esbuild")` from
+      // resolving types when esbuild is only a transitive dep).
+      const esbuild = _require("esbuild");
       const result = await esbuild.build({
         entryPoints: [r.entry],
         write: false,
