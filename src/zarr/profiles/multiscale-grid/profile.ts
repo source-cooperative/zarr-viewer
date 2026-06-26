@@ -134,6 +134,12 @@ export const multiscaleGridProfile: ZarrProfile<
       );
     }
     const metadata = buildGeoZarrMetadata({ levels, crsWkt, dims });
+    // Downsample factor for each level relative to the finest (coarsest-first,
+    // matching displayIndex order). Round to nearest integer to avoid floating-
+    // point drift (pixel sizes are typically exact power-of-2 multiples).
+    const levelDownsamples = finestPixelMeters > 0
+      ? levels.map((l) => Math.round(Math.abs(l.geoTransform[1]!) / finestPixelMeters))
+      : levels.map((_, i) => Math.round(Math.pow(2, levels.length - 1 - i)));
     // Memory gate: the coarsest level has no coarser overview, so deck.gl clamps
     // to it when zoomed out and enumerates every viewport tile at its native
     // resolution (CHM: ~76 m/px, 512² chunks) — thousands continent-wide (~7 GB).
@@ -172,6 +178,7 @@ export const multiscaleGridProfile: ZarrProfile<
       longName,
       variable,
       levelCount: datasets.length,
+      levelDownsamples,
       finestPixelMeters,
       crsCode,
       coarsestArray: coarsestArray!,
@@ -277,6 +284,7 @@ export const multiscaleGridProfile: ZarrProfile<
   },
 
   pyramidLevelCount: (ctx) => ctx.levelCount,
+  pyramidLevelDownsamples: (ctx) => ctx.levelDownsamples,
 
   getStructure: (ctx) => ({
     zarrVersion: "v3",

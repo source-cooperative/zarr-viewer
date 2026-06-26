@@ -28,6 +28,9 @@ let state: TileActivity = { inFlight: 0, level: null, levelCount: null, downsamp
 // the map host report the finest tile actually loaded, ignoring transient
 // coarse fallbacks, and resets each burst so zooming out is reflected.
 let burstMax: number | null = null;
+// Per-level downsample factors (displayIndex order: index 0 = coarsest).
+// Null when the active profile doesn't expose per-level scale info.
+let levelDownsamples: number[] | null = null;
 
 const listeners = new Set<() => void>();
 let scheduled = false;
@@ -56,12 +59,23 @@ export function getSnapshot(): TileActivity {
   return state;
 }
 
+/** Return the downsample factor for a displayIndex level from the stored array,
+ * or null when no downsample table is set. */
+function downsampleForLevel(level: number | null): number | null {
+  if (level == null || !levelDownsamples) return null;
+  return levelDownsamples[level - 1] ?? null; // displayIndex is 1-based
+}
+
 /** Declare (or clear) the pyramid for the active store. `null` levelCount means
- * single-level / non-multiscale — the badge then omits the level. */
-export function setPyramid(levelCount: number | null, downsample: number | null = null): void {
+ * single-level / non-multiscale — the badge then omits the level. When
+ * `downsamples` is provided it is an array in displayIndex order (index 0 =
+ * coarsest level) of downsample factors relative to the finest level; the badge
+ * then shows a scale ratio (e.g. "1:4") alongside the level. */
+export function setPyramid(levelCount: number | null, downsamples?: number[] | null): void {
+  levelDownsamples = levelCount != null && downsamples ? downsamples : null;
   set({
     levelCount,
-    downsample: levelCount == null ? null : downsample,
+    downsample: levelCount == null ? null : state.downsample,
     level: levelCount == null ? null : state.level,
   });
 }
@@ -81,7 +95,11 @@ export function tileLoadStart(level?: number): void {
     burstMax = burstMax == null ? level : Math.max(burstMax, level);
     next = burstMax;
   }
-  set({ inFlight: state.inFlight + 1, level: next });
+  // Update downsample from the per-level table when available (map host);
+  // preserve the existing value when the table is absent (image host sets it
+  // via setActiveLevel and we must not overwrite it here).
+  const nextDs = levelDownsamples != null ? downsampleForLevel(next) : state.downsample;
+  set({ inFlight: state.inFlight + 1, level: next, downsample: nextDs });
 }
 
 /** A network read settled (success, error, or abort). `level` (displayIndex),
@@ -93,12 +111,14 @@ export function tileLoadEnd(level?: number): void {
     burstMax = burstMax == null ? level : Math.max(burstMax, level);
     next = burstMax;
   }
-  set({ inFlight, level: next });
+  const nextDs = levelDownsamples != null ? downsampleForLevel(next) : state.downsample;
+  set({ inFlight, level: next, downsample: nextDs });
 }
 
 /** Clear everything (store/profile change). */
 export function reset(): void {
   burstMax = null;
+  levelDownsamples = null;
   state = { inFlight: 0, level: null, levelCount: null, downsample: null };
   emit();
 }

@@ -521,7 +521,10 @@ export default function App() {
       tileActivity.reset();
       return;
     }
-    tileActivity.setPyramid(profile.pyramidLevelCount?.(profileCtx) ?? null);
+    tileActivity.setPyramid(
+      profile.pyramidLevelCount?.(profileCtx) ?? null,
+      profile.pyramidLevelDownsamples?.(profileCtx) ?? null,
+    );
     return () => tileActivity.reset();
   }, [profile, profileCtx]);
 
