@@ -238,11 +238,11 @@ function StoreSection({
             <YesNoPill value={consolidated} />
           </KV>
         )}
-        {conventions.length > 0 && (
-          <KV
-            label="Conventions"
-            info="Zarr conventions explicitly declared by the store's root group: the 'zarr_conventions' registry attribute, CF/ACDD/UGRID tokens in the 'Conventions' attribute, and OME-Zarr (a 'multiscales' attribute with an 'axes' field). Names link to their canonical specification when one is known; a warning icon marks a convention inferred from a legacy signal rather than the registry."
-          >
+        <KV
+          label="Conventions"
+          info="Zarr conventions explicitly declared by the store's root group: the 'zarr_conventions' registry attribute, CF/ACDD/UGRID tokens in the 'Conventions' attribute, and OME-Zarr (a 'multiscales' attribute with an 'axes' field). Names link to their canonical specification when one is known; a warning icon marks a convention inferred from a legacy signal rather than the registry."
+        >
+          {conventions.length > 0 ? (
             <span
               style={{
                 display: "inline-flex",
@@ -275,8 +275,10 @@ function StoreSection({
                 );
               })}
             </span>
-          </KV>
-        )}
+          ) : (
+            "(none listed)"
+          )}
+        </KV>
       </dl>
     </div>
   );
