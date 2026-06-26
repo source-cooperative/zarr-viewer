@@ -125,17 +125,12 @@ export function detectConventions(
   return result;
 }
 
-/** Version for a `zarr_conventions` registry entry: an explicit `version`
- * string if present, else the `vX.Y` tag embedded in its `schema_url`
- * (e.g. `…/refs/tags/v0.1/schema.json` → `"0.1"`). Null when neither is found. */
+/** Version for a `zarr_conventions` registry entry: only an explicit `version`
+ * string, else null. We deliberately do NOT infer it from the `schema_url` tag
+ * — that produced misleading labels for real stores (e.g. a `v1` tag rendering
+ * a colon-suffixed name as `proj:-1`). See issue #36. */
 function registryVersion(entry: Record<string, unknown>): string | null {
-  if (typeof entry["version"] === "string") return entry["version"];
-  const url = entry["schema_url"];
-  if (typeof url === "string") {
-    const m = /\/tags\/v?(\d[\d.]*?)\/schema\.json/.exec(url);
-    if (m) return m[1]!;
-  }
-  return null;
+  return typeof entry["version"] === "string" ? entry["version"] : null;
 }
 
 /** Where the GeoZarr-style attrs handed to `ZarrLayer.metadata` came from. */

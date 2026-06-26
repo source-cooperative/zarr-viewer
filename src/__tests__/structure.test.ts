@@ -111,11 +111,12 @@ describe("detectConventions", () => {
     ]);
   });
 
-  it("detects conventions from the zarr_conventions registry, with version + spec_url", () => {
+  it("detects registry conventions; version only from an explicit field, never the schema_url tag", () => {
     const attrs = {
       zarr_conventions: [
         {
           name: "multiscales",
+          version: "0.1",
           uuid: "d35379db-88df-4056-af3a-620245f8e347",
           schema_url:
             "https://raw.githubusercontent.com/zarr-conventions/multiscales/refs/tags/v0.1/schema.json",
@@ -123,6 +124,7 @@ describe("detectConventions", () => {
             "https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md",
         },
         {
+          // No explicit `version` — the `v0.2` tag in schema_url must be ignored.
           name: "proj",
           schema_url:
             "https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.2/schema.json",
@@ -138,7 +140,7 @@ describe("detectConventions", () => {
         specUrl:
           "https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md",
       },
-      { name: "proj", version: "0.2" },
+      { name: "proj", version: null },
     ]);
   });
 
@@ -153,8 +155,9 @@ describe("detectConventions", () => {
       ],
       multiscales: [{ datasets: [{ path: "1x", downscale_factor: 1 }] }],
     };
+    // No explicit version on the registry entry → null (schema_url tag ignored).
     expect(detectConventions(attrs)).toEqual([
-      { name: "multiscales", version: "0.1" },
+      { name: "multiscales", version: null },
     ]);
   });
 });
