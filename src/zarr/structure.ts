@@ -50,6 +50,7 @@ const CONVENTION_SPECS: Record<string, SpecUrl> = {
   multiscales: "https://github.com/zarr-conventions/multiscales",
   proj: "https://github.com/zarr-conventions/proj",
   spatial: "https://github.com/zarr-conventions/spatial",
+  geoemb: "https://github.com/geo-embeddings/embeddings-zarr-convention",
   geozarr: "https://github.com/zarr-developers/geozarr-spec",
   ugrid: "http://ugrid-conventions.github.io/ugrid-conventions/",
   acdd: "https://wiki.esipfed.org/Attribute_Convention_for_Data_Discovery_1-3",

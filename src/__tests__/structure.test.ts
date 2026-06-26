@@ -8,6 +8,7 @@ const OME_LATEST = "https://ngff.openmicroscopy.org/latest/";
 const MULTISCALES_REPO = "https://github.com/zarr-conventions/multiscales";
 const PROJ_REPO = "https://github.com/zarr-conventions/proj";
 const SPATIAL_REPO = "https://github.com/zarr-conventions/spatial";
+const GEOEMB_REPO = "https://github.com/geo-embeddings/embeddings-zarr-convention";
 const GEOZARR_SPEC = "https://github.com/zarr-developers/geozarr-spec";
 const ACDD = "https://wiki.esipfed.org/Attribute_Convention_for_Data_Discovery_1-3";
 const UGRID = "http://ugrid-conventions.github.io/ugrid-conventions/";
@@ -149,13 +150,19 @@ describe("detectConventions", () => {
   });
 
   it("links colon-suffixed registry names via name normalization", () => {
+    // AEF's registry shape: proj:/spatial:/geoemb: with trailing colons.
     const attrs = {
-      zarr_conventions: [{ name: "proj:" }, { name: "spatial:" }],
+      zarr_conventions: [
+        { name: "proj:" },
+        { name: "spatial:" },
+        { name: "geoemb:" },
+      ],
     };
     // Display name keeps the colon; only the table lookup is normalized.
     expect(detectConventions(attrs)).toEqual([
       { name: "proj:", version: null, specUrl: PROJ_REPO },
       { name: "spatial:", version: null, specUrl: SPATIAL_REPO },
+      { name: "geoemb:", version: null, specUrl: GEOEMB_REPO },
     ]);
   });
 
