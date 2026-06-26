@@ -1,6 +1,6 @@
-import { ZarrLayer } from "@developmentseed/deck.gl-zarr";
 import * as zarr from "zarrita";
 import { createLogger } from "../../../log";
+import { ReportingZarrLayer } from "../../../render/reporting-zarr-layer";
 import { buildSingleBandRenderTile } from "../../../render/single-band-pipeline";
 import type { MultiBandTileData } from "../../../render/shared-textures";
 import { autoStatsFromGlobal, buildBandStats } from "../../../render/stats";
@@ -211,7 +211,7 @@ export const multiscaleGridProfile: ZarrProfile<
       colormapTexture,
       autoStats,
     );
-    return new ZarrLayer<zarr.Readable, zarr.DataType, MultiBandTileData>({
+    return new ReportingZarrLayer<zarr.Readable, zarr.DataType, MultiBandTileData>({
       id: `multiscale-grid-${ctx.variable}`,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       node: node as any,

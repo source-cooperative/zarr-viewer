@@ -85,6 +85,33 @@ export function setActiveLevel(level: number, downsample: number | null = null):
   set({ level, downsample });
 }
 
+/** Map host: report the level currently DISPLAYED, derived from deck.gl's
+ * selected tiles rather than from fetches — so revisiting an already-cached
+ * zoom still updates the badge. (`tileLoadStart`/`tileLoadEnd` only fire on
+ * cache misses, so on their own the badge goes stale when deck reuses cached
+ * tiles.) `tiles` are a TileLayer's `selectedTiles` (`index.z`: 0 = coarsest);
+ * the finest LOADED one is what the user actually sees, so its displayIndex
+ * (`z + 1`) is the displayed level.
+ *
+ * No-op for non-multiscale stores (no level badge) and while a fetch is in
+ * flight — during a load the burst path (`tileLoadStart`/`tileLoadEnd`) owns
+ * the level, and deck only fires this once the selected tiles are all loaded. */
+export function reportDisplayedTiles(
+  tiles: { index: { z: number }; isLoaded?: boolean }[],
+): void {
+  if (state.levelCount == null || state.inFlight > 0) return;
+  let maxZ = -1;
+  for (const t of tiles) {
+    if (t?.isLoaded === false) continue;
+    const z = t?.index?.z;
+    if (typeof z === "number" && z > maxZ) maxZ = z;
+  }
+  if (maxZ < 0) return;
+  const level = maxZ + 1; // displayIndex: deck z=0 (coarsest) → level 1
+  const nextDs = levelDownsamples != null ? downsampleForLevel(level) : state.downsample;
+  set({ level, downsample: nextDs });
+}
+
 /** A network read started. `level` (displayIndex), when given, updates the
  * displayed level immediately — so the badge reflects the level being loaded
  * before it finishes. The finest level seen this burst wins. */
