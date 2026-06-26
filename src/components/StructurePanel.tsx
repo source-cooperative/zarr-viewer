@@ -241,7 +241,7 @@ function StoreSection({
         {conventions.length > 0 && (
           <KV
             label="Conventions"
-            info="Zarr conventions used by the store's root group. The canonical source is the 'zarr_conventions' registry attribute; CF is read from the 'Conventions' attribute, OME-Zarr from a 'multiscales' attribute with an 'axes' field, and GeoZarr from 'spatial:*' / 'proj:code' keys. A warning icon marks a convention inferred from a legacy signal rather than the registry."
+            info="Zarr conventions explicitly declared by the store's root group: the 'zarr_conventions' registry attribute, CF/ACDD/UGRID tokens in the 'Conventions' attribute, and OME-Zarr (a 'multiscales' attribute with an 'axes' field). Names link to their canonical specification when one is known; a warning icon marks a convention inferred from a legacy signal rather than the registry."
           >
             <span
               style={{

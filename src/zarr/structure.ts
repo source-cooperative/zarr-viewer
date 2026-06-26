@@ -22,34 +22,64 @@ export type ConventionEntry = {
   legacy?: string;
 };
 
-const MULTISCALES_REPO_URL = "https://github.com/zarr-conventions/multiscales";
-
 const LEGACY_MULTISCALES_NOTE =
   "Detected from a legacy array-shaped `multiscales` attribute (the " +
   "xarray-multiscale / ndpyramid layout). Current best practice is to declare " +
   "multiscale pyramids via the `zarr_conventions` registry — see " +
   "github.com/zarr-conventions/multiscales.";
 
-/** Versioned CF Conventions document URL. CF publishes each release at a stable
- * path; without a version we fall back to the project landing page. */
-function cfSpecUrl(version: string | null): string {
-  return version
-    ? `https://cfconventions.org/Data/cf-conventions/cf-conventions-${version}/cf-conventions.html`
-    : "https://cfconventions.org/";
+/** A canonical spec/docs URL, or a builder when the URL is version-specific. */
+type SpecUrl = string | ((version: string | null) => string);
+
+/**
+ * Curated map of convention name → canonical spec link. Keys are normalized
+ * (see {@link normalizeConventionName}). This is the ONLY source of links: a
+ * convention is rendered as a link iff it appears here, so we never depend on a
+ * store's self-declared `spec_url` (which can be dead — see issue #36) and never
+ * fabricate a URL for an unknown convention. All URLs verified 2026-06-25.
+ */
+const CONVENTION_SPECS: Record<string, SpecUrl> = {
+  cf: (v) =>
+    v
+      ? `https://cfconventions.org/Data/cf-conventions/cf-conventions-${v}/cf-conventions.html`
+      : "https://cfconventions.org/",
+  "ome-zarr": (v) =>
+    v
+      ? `https://ngff.openmicroscopy.org/${v}/`
+      : "https://ngff.openmicroscopy.org/latest/",
+  multiscales: "https://github.com/zarr-conventions/multiscales",
+  proj: "https://github.com/zarr-conventions/proj",
+  spatial: "https://github.com/zarr-conventions/spatial",
+  geozarr: "https://github.com/zarr-developers/geozarr-spec",
+  ugrid: "http://ugrid-conventions.github.io/ugrid-conventions/",
+  acdd: "https://wiki.esipfed.org/Attribute_Convention_for_Data_Discovery_1-3",
+};
+
+/** Normalize a convention name for table lookup: lowercase, trim, and strip a
+ * trailing `:` (registry names like FTW's `proj:` / `spatial:`). */
+function normalizeConventionName(name: string): string {
+  return name.trim().toLowerCase().replace(/:+$/, "");
+}
+
+/** Canonical spec URL for a convention from {@link CONVENTION_SPECS}, or
+ * undefined when the convention isn't in the curated table. */
+function specUrlFor(name: string, version: string | null): string | undefined {
+  const entry = CONVENTION_SPECS[normalizeConventionName(name)];
+  return typeof entry === "function" ? entry(version) : entry;
 }
 
 /**
- * Detect Zarr conventions used by the root group from its attributes.
+ * Detect Zarr conventions explicitly declared by the root group's attributes.
  *
  * Checks, in order:
  *   - The CF-style `Conventions` string attr (CF, ACDD, UGRID, …).
- *   - The canonical `zarr_conventions` registry (array of {name, schema_url, …}).
+ *   - The canonical `zarr_conventions` registry (array of {name, …}).
  *   - A `multiscales` array attr — OME-Zarr when it carries `axes`, otherwise
  *     the legacy datasets-based pyramid layout (flagged legacy).
- *   - `spatial:*` / `proj:code` keys (developmentseed GeoZarr).
  *
- * Names are deduped (first wins), so a registry-declared `multiscales` takes
- * precedence over the legacy heuristic.
+ * Every link comes from the curated {@link CONVENTION_SPECS} table; conventions
+ * not in the table are listed without a link. Names are deduped (first wins),
+ * so a registry-declared `multiscales` takes precedence over the legacy array.
  */
 export function detectConventions(
   attrs: Record<string, unknown>,
@@ -66,27 +96,25 @@ export function detectConventions(
   if (typeof conv === "string" && conv.trim()) {
     for (const token of conv.split(/[\s,]+/).filter(Boolean)) {
       const m = /^([A-Za-z][A-Za-z0-9_-]*)-(\d[\d.]*)$/.exec(token);
-      const entry: ConventionEntry = m
-        ? { name: m[1]!, version: m[2]! }
-        : { name: token, version: null };
-      // Only CF has a known versioned doc URL; other tokens (ACDD, UGRID, …)
-      // are left unlinked here (a registry entry can still supply a spec_url).
-      if (entry.name === "CF") entry.specUrl = cfSpecUrl(entry.version);
-      add(entry);
+      const name = m ? m[1]! : token;
+      const version = m ? m[2]! : null;
+      const specUrl = specUrlFor(name, version);
+      add(specUrl ? { name, version, specUrl } : { name, version });
     }
   }
 
-  // Canonical registry: stores declare their conventions explicitly here. We do
-  // NOT link their declared `spec_url` — real stores ship dead ones (FTW's
-  // `proj:` / `spatial:` both 404), and we can't validate at render time. The
-  // trust/validation question is tracked in issue #36.
+  // Canonical registry: stores declare their conventions explicitly here. Links
+  // come from our curated table keyed by the (normalized) name — NOT the store's
+  // declared `spec_url`, which can be dead (FTW's `proj:`/`spatial:` both 404).
   const registry = attrs["zarr_conventions"];
   if (Array.isArray(registry)) {
     for (const entry of registry) {
       if (!isObject(entry)) continue;
       const name = entry["name"];
       if (typeof name !== "string" || !name) continue;
-      add({ name, version: registryVersion(entry) });
+      const version = registryVersion(entry);
+      const specUrl = specUrlFor(name, version);
+      add(specUrl ? { name, version, specUrl } : { name, version });
     }
   }
 
@@ -95,29 +123,24 @@ export function detectConventions(
   // multiscale entries always carry an `axes` array (spec-required since v0.3);
   // the legacy layout has none. Gate OME on `axes`; treat an `axes`-less
   // datasets array as the legacy `multiscales` convention (unless the registry
-  // already declared it).
+  // already declared it). A legacy entry is both linked (table) and warned.
   const multiscales = attrs["multiscales"];
   if (Array.isArray(multiscales) && multiscales.length > 0) {
     const first = multiscales[0];
     if (isObject(first) && Array.isArray(first["axes"])) {
-      add({
-        name: "OME-Zarr",
-        version: typeof first["version"] === "string" ? first["version"] : null,
-      });
+      const version =
+        typeof first["version"] === "string" ? first["version"] : null;
+      const specUrl = specUrlFor("OME-Zarr", version);
+      add(specUrl ? { name: "OME-Zarr", version, specUrl } : { name: "OME-Zarr", version });
     } else if (isObject(first) && Array.isArray(first["datasets"])) {
       add({
         name: "multiscales",
         version: null,
-        specUrl: MULTISCALES_REPO_URL,
+        specUrl: specUrlFor("multiscales", null),
         legacy: LEGACY_MULTISCALES_NOTE,
       });
     }
   }
-
-  const hasGeoZarr = Object.keys(attrs).some(
-    (k) => k.startsWith("spatial:") || k === "proj:code",
-  );
-  if (hasGeoZarr) add({ name: "GeoZarr", version: null });
 
   return result;
 }
