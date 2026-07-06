@@ -1,5 +1,6 @@
 import { isZarritaError } from "zarrita";
 import { isTransientError, parseHttpStatus } from "../zarr/retry-store";
+import { UnsupportedCodecError } from "../zarr/unsupported-codec";
 
 type Props = {
   message: string | null;
@@ -73,10 +74,20 @@ export function humanizeError(err: unknown): string {
   if (lower.includes("cors")) {
     return "The host blocked this cross-origin request (CORS). For source.coop datasets use the data.source.coop byte-serving host.";
   }
+  // A compression codec we can't decode in-browser (e.g. Blosc2, which has no
+  // JS decoder). The store opened, but its chunks can't be decompressed — name
+  // the codec so the user knows why, and point at a renderable copy.
+  if (err instanceof UnsupportedCodecError || isZarritaError(err, "UnknownCodecError")) {
+    const codec =
+      err instanceof UnsupportedCodecError
+        ? err.codecId
+        : ((err as { codec?: string }).codec ?? "unknown");
+    return `This dataset is compressed with the "${codec}" codec, which this viewer can't decode in the browser — the store opened, but its data can't be displayed. Supported codecs: blosc, zstd, gzip, lz4, zlib. If a Zarr v3 or Icechunk copy of the dataset exists, try that.`;
+  }
   // Store opened but the viewer can't render it.
   if (
     lower.includes("no regular lat/lon gridded variables found") ||
-    isZarritaError(err, "UnsupportedError", "UnknownCodecError") ||
+    isZarritaError(err, "UnsupportedError") ||
     lower.includes("unsupported")
   ) {
     return "This store opened, but the viewer can't render it: no regular lat/lon gridded variable (it may use an unstructured mesh, a projected grid, or an unsupported data type).";
