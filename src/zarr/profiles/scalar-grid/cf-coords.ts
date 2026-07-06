@@ -164,7 +164,7 @@ export async function buildDimLabel(
   const indexLabel = (i: number) => `${i} / ${Math.max(0, size - 1)}`;
   const loc = group.resolve(dimName);
   try {
-    const arr = await zarr.open.v3(loc, { kind: "array" });
+    const arr = await zarr.open(loc, { kind: "array" });
     const units = typeof arr.attrs.units === "string" ? arr.attrs.units : null;
     const chunk = await zarr.get(arr as zarr.Array<zarr.DataType, zarr.Readable>);
     const raw = chunk.data as ArrayLike<number | bigint>;

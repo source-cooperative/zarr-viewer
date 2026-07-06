@@ -31,11 +31,8 @@ export const imageOrthographicProfile: ZarrProfile<
 
   async prepare(url, signal) {
     // OME-Zarr ships no consolidated metadata; open plain and descend.
-    // `version: "auto"` so OME-Zarr v0.4 (zarr v2) stores open too.
-    const opened = await openV3Group(url, {
-      consolidated: false,
-      version: "auto",
-    });
+    // openV3Group auto-detects the version, so OME-Zarr v0.4 (zarr v2) opens too.
+    const opened = await openV3Group(url, { consolidated: false });
     const ome = await parseOme(opened.group, signal);
     // Cheap version probe for the Structure panel: v3 stores have a root
     // `zarr.json`; v0.4 (v2) stores don't.
