@@ -29,7 +29,7 @@ async function findBandVariable(
     if (!path || path.includes("/")) continue;
     let arr: zarr.Array<zarr.DataType, zarr.Readable>;
     try {
-      arr = await zarr.open.v3(group.resolve(path), { kind: "array" });
+      arr = await zarr.open(group.resolve(path), { kind: "array" });
     } catch {
       continue;
     }

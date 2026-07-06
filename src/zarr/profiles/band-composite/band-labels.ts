@@ -6,7 +6,7 @@ import { NUM_BANDS } from "./constants";
 export async function fetchBandLabels(
   root: zarr.Group<zarr.Readable>,
 ): Promise<string[]> {
-  const bandArr = await zarr.open.v3(root.resolve("band"), { kind: "array" });
+  const bandArr = await zarr.open(root.resolve("band"), { kind: "array" });
   if (!bandArr.is("string")) {
     throw new Error(
       `Expected the "band" coord to be a string array, got ${bandArr.dtype}`,

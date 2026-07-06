@@ -144,7 +144,7 @@ async function openIcechunk(
   return { group, store };
 }
 
-/** Open a Zarr v3 store at `url`. Routes `.icechunk` URLs to
+/** Open a Zarr store at `url` (v3 or v2). Routes `.icechunk` URLs to
  * {@link openIcechunk}; everything else uses the `FetchStore` stack below.
  *
  * FetchStore stacking:
@@ -167,7 +167,7 @@ async function openIcechunk(
  *    cheap hierarchy listing without per-array `zarr.json` fetches. */
 export async function openV3Group(
   url: string,
-  options: { consolidated?: boolean; version?: "v3" | "auto" } = {},
+  options: { consolidated?: boolean } = {},
 ): Promise<OpenedStore> {
   // Suffix is the fast path; for suffix-less URLs, a layout probe catches
   // Icechunk repos whose name doesn't end in `.icechunk` (e.g. source.coop's
@@ -189,7 +189,12 @@ export async function openV3Group(
   let store: zarr.Readable = retrying;
   if (options.consolidated) {
     try {
-      store = await zarr.withConsolidatedMetadata(retrying, { format: "v3" });
+      // Try v3 consolidated first (the common source.coop case), then v2
+      // `.zmetadata` (e.g. SILAM's consolidated Zarr v2 stores). zarrita parses
+      // the file per format and falls through on mismatch.
+      store = await zarr.withConsolidatedMetadata(retrying, {
+        format: ["v3", "v2"],
+      });
       log.debug("consolidated metadata: hit");
     } catch {
       // Store ships no consolidated metadata (e.g. FireSmoke). Fall back to
@@ -199,13 +204,11 @@ export async function openV3Group(
       log.debug("consolidated metadata: miss (will probe variables)");
     }
   }
-  // Default to v3 (every source.coop store). `version: "auto"` lets the image
-  // profile open OME-Zarr v0.4 stores (zarr v2: `.zgroup`/`.zarray`); zarrita's
-  // `open` auto-detects, trying v3 then falling back to v2.
-  const group =
-    options.version === "auto"
-      ? await zarr.open(store, { kind: "group" })
-      : await zarr.open.v3(store, { kind: "group" });
+  // Auto-detect the Zarr version: zarrita's `open` tries v3 (`zarr.json`) then
+  // falls back to v2 (`.zgroup`/`.zarray`), so both plain v3 stores and
+  // consolidated v2 stores (SILAM) open here. It records the resolved version,
+  // so later child-array opens (`zarr.open` in the profiles) stay single-request.
+  const group = await zarr.open(store, { kind: "group" });
   done();
   return { group, store };
 }

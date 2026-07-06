@@ -235,7 +235,7 @@ export async function enumerateVariables(
     if (!rest) continue;
     let arr: zarr.Array<zarr.DataType, zarr.Readable>;
     try {
-      arr = await zarr.open.v3(group.resolve(rest), { kind: "array" });
+      arr = await zarr.open(group.resolve(rest), { kind: "array" });
     } catch {
       continue; // probed candidate doesn't exist in this store
     }
@@ -356,8 +356,8 @@ async function synthesizeSpatialAttrs(
 ): Promise<{ attrs: ScalarGridSpatialAttrs; rollLongitude: boolean }> {
   // Coord arrays are siblings of the variable, i.e. under its subgroup path.
   const [latArr, lonArr] = await Promise.all([
-    zarr.open.v3(group.resolve(joinPath(groupPath, latName)), { kind: "array" }),
-    zarr.open.v3(group.resolve(joinPath(groupPath, lonName)), { kind: "array" }),
+    zarr.open(group.resolve(joinPath(groupPath, latName)), { kind: "array" }),
+    zarr.open(group.resolve(joinPath(groupPath, lonName)), { kind: "array" }),
   ]);
   const [latChunk, lonChunk] = await Promise.all([
     zarr.get(latArr as zarr.Array<zarr.NumberDataType, zarr.Readable>),
@@ -553,10 +553,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       // This extra open runs ONLY after the v3 open already failed — the
       // geographic v3 fast path pays nothing.
       try {
-        const probe = await openV3Group(url, {
-          consolidated: false,
-          version: "auto",
-        });
+        const probe = await openV3Group(url, { consolidated: false });
         if (isOmeZarrAttrs(probe.group.attrs)) throw new OmeZarrStoreError();
       } catch (probeErr) {
         if (probeErr instanceof OmeZarrStoreError) throw probeErr;
@@ -739,7 +736,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     // somehow missing.
     const cached = ctx.arrays.get(state.variable);
     if (cached) return cached;
-    const arr = await zarr.open.v3(ctx.group.resolve(state.variable), {
+    const arr = await zarr.open(ctx.group.resolve(state.variable), {
       kind: "array",
     });
     ctx.arrays.set(state.variable, arr);
@@ -957,7 +954,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     if (!variableMeta) return null;
     const arr =
       ctx.arrays.get(state.variable) ??
-      (await zarr.open.v3(ctx.group.resolve(state.variable), {
+      (await zarr.open(ctx.group.resolve(state.variable), {
         kind: "array",
       }));
     if (signal.aborted) return null;

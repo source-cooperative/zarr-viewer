@@ -80,11 +80,11 @@ export const multiscaleGridProfile: ZarrProfile<
       if (signal.aborted) throw new Error("aborted");
       const scale = datasets[i]!;
       const arrName = pickLevelArrayName(contents, scale) ?? "chm";
-      const chm = await zarr.open.v3(
+      const chm = await zarr.open(
         opened.group.resolve(`${scale}/${arrName}`),
         { kind: "array" },
       );
-      const sr = await zarr.open.v3(
+      const sr = await zarr.open(
         opened.group.resolve(`${scale}/spatial_ref`),
         { kind: "array" },
       );
