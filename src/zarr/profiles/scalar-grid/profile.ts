@@ -16,6 +16,7 @@ import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
 import { createLogger } from "../../../log";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group, type OpenedStore } from "../../load-zarr";
+import { assertCodecsSupported } from "../../unsupported-codec";
 import { MultiscaleStoreError, parseMultiscaleDatasets } from "../../multiscale";
 import { OmeZarrStoreError, isOmeZarrAttrs } from "../image-orthographic/ome";
 
@@ -579,6 +580,11 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     }
     const first = variables[0]!;
     const firstArr = arrays.get(first.name)!;
+    // Fail fast with a clear message if the variable we're about to render uses
+    // a codec we can't decode (e.g. Blosc2) — otherwise the store opens but its
+    // tiles silently never load. zarrita resolves codecs lazily at chunk-read,
+    // so this metadata check is what surfaces the problem up front.
+    await assertCodecsSupported(opened.store, first.name);
     const pair = spatialPair(firstArr.dimensionNames)!;
 
     // Grid: prefer the store's own GeoZarr attrs (e.g. FTW/AEF); else
