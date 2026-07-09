@@ -832,7 +832,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       metadata: ctx.spatialAttrs,
       selection,
       tileSize: spatialTileSize(arr),
-      minZoom: ctx.minRenderZoom,
+      minZoom: chassisState.minZoomOverride ?? ctx.minRenderZoom,
       // Required (with the getTileIndices patch) to keep already-loaded tiles
       // painted below minZoom: a non-null extent disables TileLayer's own
       // below-minZoom hide gate. See keep-min-zoom-tiles.ts.

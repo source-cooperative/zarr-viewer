@@ -27,6 +27,11 @@ export type ViewerState = {
    * When present, overrides profile-supplied initialBounds / initialView.
    * Re-serialized on every user-initiated map move. */
   view: [number, number, number] | null;
+  /** URL override (`?minZoom=`) for the active profile/store's derived
+   * minimum render zoom. When set, replaces the computed `minRenderZoom` for
+   * both the zoom-in hint and the layer's tile-loading floor — lets a shared
+   * link force tiles to load below the auto-derived (fetch-budget) floor. */
+  minZoomOverride: number | null;
 };
 
 export type ViewerStateUpdate = Partial<ViewerState>;
