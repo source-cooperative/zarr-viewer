@@ -95,7 +95,7 @@ export function parseViewerState(p: URLSearchParams): ViewerState {
     labelsAbove: p.get("labels") !== "below",
     profileId: p.get("p"),
     view: parseView(p.get("lng"), p.get("lat"), p.get("zoom")),
-    minZoomOverride: parseMinZoomOverride(p.get("minZoom")),
+    minZoomOverride: parseMinZoomOverride(p.get("min_zoom")),
   };
 }
 
@@ -158,8 +158,8 @@ function applyChassisPatch(p: URLSearchParams, patch: ViewerStateUpdate): void {
     }
   }
   if (patch.minZoomOverride !== undefined) {
-    if (patch.minZoomOverride === null) p.delete("minZoom");
-    else p.set("minZoom", String(patch.minZoomOverride));
+    if (patch.minZoomOverride === null) p.delete("min_zoom");
+    else p.set("min_zoom", String(patch.minZoomOverride));
   }
 }
 

@@ -680,7 +680,7 @@ export default function App() {
       {(() => {
         // Per-store min-zoom (scalar-grid derives it from resolution) overrides
         // the profile's static value for the zoom-in hint; an explicit
-        // `?minZoom=` URL override wins over both.
+        // `?min_zoom=` URL override wins over both.
         const minZoom =
           state.minZoomOverride ??
           (profileCtx?.minRenderZoom ?? profile?.minRenderZoom);
