@@ -14,6 +14,7 @@ describe("parseViewerState", () => {
     expect(s.rescale).toBeNull();
     expect(s.labelsAbove).toBe(true);
     expect(s.profileId).toBeNull();
+    expect(s.minZoomOverride).toBeNull();
   });
 
   it("clamps opacity into [0,1]", () => {
@@ -66,5 +67,23 @@ describe("parseViewerState", () => {
       parseViewerState(new URLSearchParams("lng=10&lat=20")).view,
     ).toBeNull();
     expect(parseViewerState(new URLSearchParams("zoom=5")).view).toBeNull();
+  });
+
+  it("parses min_zoom as an override, clamped to non-negative", () => {
+    expect(
+      parseViewerState(new URLSearchParams("min_zoom=5")).minZoomOverride,
+    ).toBe(5);
+    expect(
+      parseViewerState(new URLSearchParams("min_zoom=-3")).minZoomOverride,
+    ).toBe(0);
+    expect(
+      parseViewerState(new URLSearchParams("min_zoom=2.5")).minZoomOverride,
+    ).toBe(2.5);
+  });
+
+  it("ignores a non-numeric min_zoom", () => {
+    expect(
+      parseViewerState(new URLSearchParams("min_zoom=foo")).minZoomOverride,
+    ).toBeNull();
   });
 });

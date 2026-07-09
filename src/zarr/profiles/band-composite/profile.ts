@@ -168,7 +168,7 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
       renderTile,
       // Align tile grid with the embeddings array's spatial chunk shape.
       tileSize: spatialTileSize(ctx.embeddings),
-      minZoom: MIN_ZOOM,
+      minZoom: chassisState.minZoomOverride ?? MIN_ZOOM,
       // Required (with the getTileIndices patch) to keep already-loaded tiles
       // painted below minZoom: a non-null extent disables TileLayer's own
       // below-minZoom hide gate. See keep-min-zoom-tiles.ts.

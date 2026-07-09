@@ -228,7 +228,7 @@ export const multiscaleGridProfile: ZarrProfile<
       // Stop fetching new tiles when zoomed out past the coarsest level's
       // budget floor; the non-null extent keeps already-loaded tiles painted
       // (vs. blanking) — see installKeepMinZoomTiles / scalar-grid.
-      minZoom: ctx.minRenderZoom,
+      minZoom: chassisState.minZoomOverride ?? ctx.minRenderZoom,
       extent: KEEP_MIN_ZOOM_EXTENT,
       maxRequests: 20,
       maxCacheSize: 64,

@@ -35,6 +35,13 @@ const parseGamma = (raw: string | null): number => {
   return n;
 };
 
+const parseMinZoomOverride = (raw: string | null): number | null => {
+  if (raw === null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, n);
+};
+
 /** Parse the three view URL params (`lng`, `lat`, `zoom`) into a tuple.
  * Returns null unless all three are present, finite, and the latitude is
  * inside [-90, 90]. The three values are only meaningful together, so a
@@ -88,6 +95,7 @@ export function parseViewerState(p: URLSearchParams): ViewerState {
     labelsAbove: p.get("labels") !== "below",
     profileId: p.get("p"),
     view: parseView(p.get("lng"), p.get("lat"), p.get("zoom")),
+    minZoomOverride: parseMinZoomOverride(p.get("min_zoom")),
   };
 }
 
@@ -148,6 +156,10 @@ function applyChassisPatch(p: URLSearchParams, patch: ViewerStateUpdate): void {
       p.delete("lat");
       p.delete("zoom");
     }
+  }
+  if (patch.minZoomOverride !== undefined) {
+    if (patch.minZoomOverride === null) p.delete("min_zoom");
+    else p.set("min_zoom", String(patch.minZoomOverride));
   }
 }
 
