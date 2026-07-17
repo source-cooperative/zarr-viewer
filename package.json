@@ -19,6 +19,8 @@
     "@developmentseed/deck.gl-raster": "0.6.1",
     "@developmentseed/deck.gl-zarr": "0.6.1",
     "@luma.gl/core": "^9.3.3",
+    "@mattnucc/gribberish": "^1.5.0",
+    "@mattnucc/gribberish-wasm32-wasi": "^1.5.0",
     "@petamoriken/float16": "^3.9.3",
     "icechunk-js": "^0.6.0",
     "maplibre-gl": "^5.24.0",
