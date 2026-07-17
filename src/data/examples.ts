@@ -107,6 +107,19 @@ export const EXAMPLES: Example[] = [
     params: { lng: "15", lat: "50", zoom: "4" },
   },
   {
+    title: "NOAA HRRR — 2 m Temperature (48-hour forecast, CONUS, 3 km)",
+    url: "https://source.coop/dynamical/noaa-hrrr-forecast-48-hour-virtual/v0.5.0.icechunk",
+    // dynamical.org virtual GRIB Icechunk store; CONUS 3 km, 0–48 h forecast
+    // (6-hourly init). Each chunk is a raw GRIB2 message decoded by the
+    // gribberish codec; the grid is Lambert Conformal Conic (projected y/x
+    // metres via a CF spatial_ref), so it renders through the projected-grid
+    // profile (proj4 reprojection), not the lat/lon scalar-grid path. Lands on
+    // temperature_2m (a preferred variable) with init_time/lead_time sliders.
+    // Centered on CONUS (matches the CarbonPlan CONUS default view). NB the
+    // threaded GRIB WASM needs cross-origin isolation (see coi-serviceworker).
+    params: { lng: "-96", lat: "38", zoom: "4" },
+  },
+  {
     title: "CarbonPlan — Wildfire burn probability (CONUS)",
     url: "https://source.coop/carbonplan/carbonplan-ocr/output/fire-risk/tensor/production/v1.1.0/ocr.icechunk",
     // Very high-res CONUS lat/lon grid (22.4–52.5°N, -128.4–-64.1°E). Lands on
