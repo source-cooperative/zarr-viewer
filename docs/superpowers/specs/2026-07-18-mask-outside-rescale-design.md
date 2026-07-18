@@ -73,11 +73,21 @@ rescale clamps — after it, the out-of-range information is already lost.
 
 ### 1. State & URL
 
+The GPU paths (scalar-grid, multiscale-grid, texture-array) use the
+**chassis** rescale (`ViewerState.rescale`), so their mask flag is a chassis
+field. The image-orthographic profile keeps its **own** profile-local rescale
+(`ImageOrthographicState.rescale`, URL params `rmin`/`rmax`), so its mask flag
+is a profile-local field (see §5). Both use the URL key `mask` — the same
+deliberate key-sharing the image profile already uses for `colormap`/`gamma`,
+and safe because only one profile is active and each path only writes the key
+from its own UI.
+
 `src/state/types.ts` — add to `ViewerState`:
 
 ```ts
 /** When true, discard (make transparent) pixels whose value is outside the
- *  resolved rescale window instead of clamping them. Display-only. */
+ *  resolved rescale window instead of clamping them. Display-only. Applies to
+ *  the GPU (map) render paths; the image profile has its own flag. */
 maskOutsideRescale: boolean;
 ```
 
@@ -134,17 +144,30 @@ toggling forces a re-render:
   build sites and their `updateTriggers`)
 - `src/zarr/profiles/multiscale-grid/profile.ts` (same)
 
-### 5. CPU image path
+### 5. CPU image path (profile-local)
+
+The image path uses its own profile-local rescale, so the flag lives on the
+profile state, not the chassis.
+
+`src/zarr/profiles/image-orthographic/types.ts` — add
+`maskOutsideRescale: boolean` to `ImageOrthographicState`.
+
+`src/zarr/profiles/image-orthographic/profile.ts`:
+
+- `initialState`: `maskOutsideRescale: false`.
+- `parseUrlParams`: `if (p.get("mask") === "1") out.maskOutsideRescale = true;`
+- `serializeUrlParams`: `mask: s.maskOutsideRescale ? "1" : null`.
 
 `src/components/image-normalize.ts` — `styleToRgba` currently writes
-`rgba[o+3] = 255` unconditionally. Add a `maskOutside` parameter; when true and
-the normalized value `t` is outside `[0, 1]` (i.e. outside the window before
-clamping), write `rgba[o+3] = 0` instead. Preserve current behavior when the
-flag is false.
+`rgba[o+3] = 255` unconditionally. Add a trailing `maskOutside = false`
+parameter; when true and the pre-clamp normalized value `t` is outside
+`[0, 1]` (i.e. `t < 0 || t > 1`), write `rgba[o+3] = 0` instead. Preserve
+current behavior when the flag is false. Detect out-of-range from `t` **before**
+the existing `t = t <= 0 ? 0 : t >= 1 ? 1 : t;` clamp.
 
-`src/components/ImageViewer.tsx` — read `state.maskOutsideRescale` and pass it
-into `styleToRgba` (alongside the existing `resolveRescale` usage at
-`:305-309`).
+`src/components/ImageViewer.tsx` — read `state.maskOutsideRescale` (profile
+state), add it to the `useMemo` deps, and pass it as the trailing arg to
+`styleToRgba` (call site `:310`).
 
 ### 6. UI
 
@@ -153,9 +176,10 @@ in `src/components/ControlsPanel.tsx`, directly below `RescaleEditor`
 (~`:144`), rendered under the same `showSingleBandControls` gate. It writes
 `update({ maskOutsideRescale: next })`.
 
-For the CPU image profile, add the equivalent checkbox to
-`src/zarr/profiles/image-orthographic/controls.tsx` near its rescale slider
-(~`:138-179`).
+For the CPU image profile, add the equivalent checkbox to the `"styling"`
+group in `src/zarr/profiles/image-orthographic/controls.tsx`, below its
+`RescaleControl`, writing `update({ maskOutsideRescale: next })` (profile
+`update`).
 
 ## Testing
 
@@ -168,8 +192,17 @@ For the CPU image profile, add the equivalent checkbox to
   4. mask on + no stats/window → module absent (nothing masked)
 - **CPU** (`styleToRgba`): alpha is `0` for out-of-range samples and `255` for
   in-range samples when `maskOutside` is true; always `255` when false.
-- **URL round-trip** (`useViewerState`): `mask=1` ⇄ `maskOutsideRescale: true`;
-  absent param → `false`; serializing `false` removes the param.
+- **Chassis URL parse** (`parseViewerState`): `mask=1` → `true`; absent → `false`;
+  `mask=0` → `false`. (Matches `state.test.ts`, which tests parsing only — the
+  serializer `applyChassisPatch` is module-private.)
+- **Image profile URL round-trip** (`imageOrthographicProfile`):
+  `parseUrlParams("mask=1").maskOutsideRescale === true`; absent → `undefined`;
+  `serializeUrlParams({..., maskOutsideRescale: true}).mask === "1"`; `false` →
+  `null`.
+
+UI wiring (the two checkboxes, `ImageViewer` threading, profile `updateTriggers`)
+is verified by `tsc -b` (build) plus a manual browser smoke check, mirroring the
+codebase's lack of a lightweight render harness for `ControlsPanel` / `buildLayer`.
 
 ## Non-goals
 
