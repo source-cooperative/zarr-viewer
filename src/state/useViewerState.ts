@@ -92,6 +92,7 @@ export function parseViewerState(p: URLSearchParams): ViewerState {
       : "linear",
     colormap: p.get("colormap"),
     rescale: parseRescale(p.get("rescale")),
+    maskOutsideRescale: p.get("mask") === "1",
     labelsAbove: p.get("labels") !== "below",
     profileId: p.get("p"),
     branch: p.get("branch"),
@@ -139,6 +140,10 @@ function applyChassisPatch(p: URLSearchParams, patch: ViewerStateUpdate): void {
   if (patch.rescale !== undefined) {
     if (patch.rescale) p.set("rescale", patch.rescale.join(","));
     else p.delete("rescale");
+  }
+  if (patch.maskOutsideRescale !== undefined) {
+    if (patch.maskOutsideRescale) p.set("mask", "1");
+    else p.delete("mask");
   }
   if (patch.labelsAbove !== undefined) {
     if (patch.labelsAbove) p.delete("labels");

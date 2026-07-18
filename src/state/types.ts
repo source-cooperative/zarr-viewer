@@ -20,6 +20,10 @@ export type ViewerState = {
   stretch: Stretch;
   colormap: string | null;
   rescale: [number, number] | null;
+  /** When true, discard (make transparent) pixels whose value is outside the
+   * resolved rescale window instead of clamping them. Display-only. Applies to
+   * the GPU (map) render paths; the image profile has its own flag. */
+  maskOutsideRescale: boolean;
   labelsAbove: boolean;
   /** Explicit profile id override (`?p=`). Inferred from `url` when null. */
   profileId: string | null;

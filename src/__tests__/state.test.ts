@@ -17,6 +17,19 @@ describe("parseViewerState", () => {
     expect(s.minZoomOverride).toBeNull();
     expect(s.branch).toBeNull();
     expect(s.snapshot).toBeNull();
+    expect(s.maskOutsideRescale).toBe(false);
+  });
+
+  it("parses the mask flag (mask=1 → true; absent/0 → false)", () => {
+    expect(
+      parseViewerState(new URLSearchParams("mask=1")).maskOutsideRescale,
+    ).toBe(true);
+    expect(
+      parseViewerState(new URLSearchParams()).maskOutsideRescale,
+    ).toBe(false);
+    expect(
+      parseViewerState(new URLSearchParams("mask=0")).maskOutsideRescale,
+    ).toBe(false);
   });
 
   it("parses the Icechunk branch/snapshot ref params", () => {
