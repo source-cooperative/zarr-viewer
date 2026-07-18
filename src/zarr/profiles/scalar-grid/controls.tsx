@@ -1,4 +1,5 @@
 import { DebouncedSlider } from "../../../components/DebouncedSlider";
+import { PlaybackSlider } from "../../../components/PlaybackSlider";
 import { StepperRange } from "../../../components/StepperRange";
 import { dimTint, tintLabelStyle } from "../../dim-colors";
 import type { ProfileControlsProps } from "../../profile";
@@ -9,6 +10,7 @@ export function ScalarGridControls({
   state,
   update,
   group,
+  playback,
 }: ProfileControlsProps<ScalarGridContext, ScalarGridState>) {
   const activeVar = ctx.variables.find((v) => v.name === state.variable);
   const texDim = activeVar?.textureDim ?? null;
@@ -40,6 +42,26 @@ export function ScalarGridControls({
         texDim && texDim.window < dim.size
           ? `${dim.name} (live · ${texDim.window}/win)`
           : `${dim.name} (live)`;
+      // When the chassis provides a playback transport (an animatable dim),
+      // render the play/pause + speed controls; else the plain live slider.
+      if (playback) {
+        return (
+          <PlaybackSlider
+            key={dim.name}
+            label={liveLabel}
+            value={value}
+            min={0}
+            max={Math.max(0, dim.size - 1)}
+            playing={playback.playing}
+            speed={playback.speed}
+            onToggle={playback.toggle}
+            onCycleSpeed={playback.cycleSpeed}
+            onSeek={playback.seekTo}
+            formatValue={format}
+            tint={tint}
+          />
+        );
+      }
       return (
         <LiveSlider
           key={dim.name}
