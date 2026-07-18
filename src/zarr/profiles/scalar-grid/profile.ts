@@ -935,6 +935,14 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     });
   },
 
+  getPlayableDim(ctx, state) {
+    const v = ctx.variables.find((x) => x.name === state.variable);
+    if (!v?.textureDim) return null;
+    const dim = v.dims.find((d) => d.name === v.textureDim!.name);
+    if (!dim || dim.size <= 1) return null;
+    return { name: dim.name, size: dim.size };
+  },
+
   sampleValue(ctx, state, lng, lat) {
     const variableMeta = ctx.variables.find((v) => v.name === state.variable);
     if (!variableMeta) return null;

@@ -43,6 +43,15 @@ export type ProfileControlsProps<Ctx, S> = {
   onFlyTo: (longitude: number, latitude: number, zoom: number) => void;
   /** Bucket to render. Omitted = render every control (back-compat). */
   group?: ControlGroup;
+  /** Playback transport for the profile's "live" (instant) dim, populated by
+   * the chassis only for the "instant" bucket when a dim is animatable. */
+  playback?: {
+    playing: boolean;
+    speed: number;
+    toggle: () => void;
+    cycleSpeed: () => void;
+    seekTo: (index: number) => void;
+  } | null;
 };
 
 export type BuildLayerArgs<Ctx, S> = {
@@ -125,6 +134,10 @@ export type ZarrProfile<
   /** Whether this profile uses single-band + colormap rendering (and so
    * needs the colormap sprite uploaded before layer construction). */
   needsColormap: boolean;
+  /** The profile's animatable "live" dim for the current state — a texture-array
+   * dim scrubbed as a GPU uniform — or null when nothing is animatable. Lets the
+   * profile-agnostic chassis drive the playback transport. */
+  getPlayableDim?: (ctx: Ctx, state: S) => { name: string; size: number } | null;
   /** Describe the store/variable shape currently being rendered. Used
    * by the Structure panel; pure function of `ctx` + `state`. */
   getStructure: (ctx: Ctx, state: S) => StructureProfileSummary;
