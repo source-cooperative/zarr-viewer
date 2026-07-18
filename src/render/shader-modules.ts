@@ -1,6 +1,7 @@
 type RescaleProps = { rescaleMin: [number, number, number]; rescaleMax: [number, number, number] };
 type GammaProps = { gamma: number };
 type LogStretchProps = { strength: number };
+type MaskProps = { maskMin: number; maskMax: number };
 
 /** Discards pixels whose red channel is NaN. */
 export const FilterNaN = {
@@ -12,6 +13,33 @@ export const FilterNaN = {
   }
 `,
   },
+} as const;
+
+/** Discards pixels whose red channel is outside [maskMin, maskMax]. Insert
+ * BEFORE the rescale/clamp step so it sees raw sample values (in GPU-sample
+ * units). Boundaries are inclusive. */
+export const MaskOutsideRange = {
+  name: "maskOutsideRange",
+  fs: `uniform maskOutsideRangeUniforms {
+  float maskMin;
+  float maskMax;
+} maskOutsideRange;
+`,
+  inject: {
+    "fs:DECKGL_FILTER_COLOR": `
+  if (color.r < maskOutsideRange.maskMin || color.r > maskOutsideRange.maskMax) {
+    discard;
+  }
+`,
+  },
+  uniformTypes: {
+    maskMin: "f32",
+    maskMax: "f32",
+  },
+  getUniforms: (props: Partial<MaskProps>) => ({
+    maskMin: props.maskMin ?? 0,
+    maskMax: props.maskMax ?? 1,
+  }),
 } as const;
 
 /** Per-channel linear rescale. Same as the shipped `LinearRescale` but vec3. */
