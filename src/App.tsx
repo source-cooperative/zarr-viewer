@@ -54,6 +54,7 @@ import {
 } from "./state/load-example";
 import { mergeProfileState } from "./state/merge-profile-state";
 import { useViewerState } from "./state/useViewerState";
+import { usePlayback } from "./state/usePlayback";
 import type { AnyZarrProfile, ProfileBaseContext } from "./zarr/profile";
 import {
   fetchCodecSummary,
@@ -173,6 +174,42 @@ export default function App() {
     [profile, profileState, updateParams],
   );
 
+  // ---- Instant-slider playback -------------------------------------------
+  // Which dim (if any) can be animated for the current profile/variable.
+  const playable = useMemo(
+    () =>
+      profile?.getPlayableDim && profileCtx && profileState
+        ? profile.getPlayableDim(profileCtx, profileState)
+        : null,
+    [profile, profileCtx, profileState],
+  );
+  // The current (URL-backed) frame index of that dim — seeds playback.
+  const playableIndex =
+    playable && profileState ? (profileState.dimIndices[playable.name] ?? 0) : 0;
+  // Commit the shown frame to the URL (on pause / seek).
+  const commitPlaybackFrame = useCallback(
+    (i: number) => {
+      if (!playable || !profileState) return;
+      updateProfileState({
+        dimIndices: { ...profileState.dimIndices, [playable.name]: i },
+      });
+    },
+    [playable, profileState, updateProfileState],
+  );
+  const playback = usePlayback(playable, playableIndex, commitPlaybackFrame);
+  // Profile state with the animated frame substituted while playing. Everything
+  // that shows the "current frame" (layer, live slider, hover) reads this.
+  const effectiveProfileState = useMemo(() => {
+    if (!profileState || !playback.playing || !playable) return profileState;
+    return {
+      ...profileState,
+      dimIndices: {
+        ...profileState.dimIndices,
+        [playable.name]: playback.index,
+      },
+    };
+  }, [profileState, playback.playing, playback.index, playable]);
+
   const handleHoverMove = useCallback(
     (e: { lngLat: { lng: number; lat: number }; point: { x: number; y: number } }) => {
       if (!profile?.sampleValue || !profileCtx || !profileState) return;
@@ -190,7 +227,12 @@ export default function App() {
           setHover(null);
           return;
         }
-        const res = profile.sampleValue(profileCtx, profileState, pt.lng, pt.lat);
+        const res = profile.sampleValue(
+          profileCtx,
+          effectiveProfileState ?? profileState,
+          pt.lng,
+          pt.lat,
+        );
         if (!res) {
           setHover(null);
           return;
@@ -210,7 +252,7 @@ export default function App() {
         });
       });
     },
-    [profile, profileCtx, profileState],
+    [profile, profileCtx, profileState, effectiveProfileState],
   );
 
   const handleHoverOut = useCallback(() => {
@@ -487,7 +529,7 @@ export default function App() {
     if (!profile || !profileCtx || !profileState) return null;
     return profile.buildLayer({
       ctx: profileCtx,
-      state: profileState,
+      state: effectiveProfileState ?? profileState,
       chassisState: state,
       device,
       colormapTexture,
@@ -504,7 +546,7 @@ export default function App() {
     isAnimatingView,
     profile,
     profileCtx,
-    profileState,
+    effectiveProfileState,
     state,
     device,
     colormapTexture,
@@ -668,7 +710,7 @@ export default function App() {
           snapshots={snapshots}
           profileFetchSlot={profile.Controls({
             ctx: profileCtx,
-            state: profileState,
+            state: effectiveProfileState ?? profileState,
             update: updateProfileState,
             chassisState: state,
             chassisUpdate: update,
@@ -678,17 +720,18 @@ export default function App() {
           })}
           profileInstantSlot={profile.Controls({
             ctx: profileCtx,
-            state: profileState,
+            state: effectiveProfileState ?? profileState,
             update: updateProfileState,
             chassisState: state,
             chassisUpdate: update,
             autoStats,
             onFlyTo: handleFlyTo,
             group: "instant",
+            playback,
           })}
           profileStyleSlot={profile.Controls({
             ctx: profileCtx,
-            state: profileState,
+            state: effectiveProfileState ?? profileState,
             update: updateProfileState,
             chassisState: state,
             chassisUpdate: update,
