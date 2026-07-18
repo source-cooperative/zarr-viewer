@@ -64,7 +64,7 @@ describe("usePlayback", () => {
   it("stops playing when the playable dim vanishes", () => {
     const { result, rerender } = renderHook(
       ({ p }: { p: Playable | null }) => usePlayback(p, 0, vi.fn()),
-      { initialProps: { p: DIM } },
+      { initialProps: { p: DIM as Playable | null } },
     );
     act(() => result.current.toggle());
     expect(result.current.playing).toBe(true);
