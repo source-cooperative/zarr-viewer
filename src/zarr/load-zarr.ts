@@ -90,6 +90,7 @@ async function hasIcechunkRepoConfig(url: string): Promise<boolean> {
 async function openIcechunk(
   url: string,
   consolidated: boolean,
+  ref: { branch?: string | null; snapshot?: string | null } = {},
 ): Promise<OpenedStore> {
   const storage = new HttpStorage(url);
   const repo = await Repository.open({ storage });
@@ -97,9 +98,30 @@ async function openIcechunk(
     repo.listBranches().catch(() => [] as string[]),
     repo.listTags().catch(() => [] as string[]),
   ]);
+  // Honor a requested branch when it's valid — or when we can't list branches
+  // to validate it (v1 over plain HTTP degrades to `[]`); otherwise fall back to
+  // the default (`main`, else the first listed branch).
+  const requested = ref.branch ?? null;
   const branch =
-    branches.length === 0 || branches.includes("main") ? "main" : branches[0]!;
-  const session = await repo.checkoutBranch(branch);
+    requested && (branches.length === 0 || branches.includes(requested))
+      ? requested
+      : branches.length === 0 || branches.includes("main")
+        ? "main"
+        : branches[0]!;
+  const branchSession = await repo.checkoutBranch(branch);
+  // A specific snapshot pins the exact repo version; on a stale/invalid id fall
+  // back to the branch tip rather than hard-failing the whole load.
+  let session = branchSession;
+  if (ref.snapshot) {
+    try {
+      session = await repo.checkoutSnapshot(ref.snapshot);
+    } catch (err) {
+      log.warn(
+        `icechunk snapshot "${ref.snapshot}" not found; using "${branch}" tip`,
+        err,
+      );
+    }
+  }
   const ice = await IcechunkStore.open(session, {
     withRangeCoalescing: zarr.withRangeCoalescing,
   });
@@ -167,7 +189,12 @@ async function openIcechunk(
  *    cheap hierarchy listing without per-array `zarr.json` fetches. */
 export async function openV3Group(
   url: string,
-  options: { consolidated?: boolean } = {},
+  options: {
+    consolidated?: boolean;
+    /** Icechunk ref selection (ignored for plain Zarr). */
+    branch?: string | null;
+    snapshot?: string | null;
+  } = {},
 ): Promise<OpenedStore> {
   // Suffix is the fast path; for suffix-less URLs, a layout probe catches
   // Icechunk repos whose name doesn't end in `.icechunk` (e.g. source.coop's
@@ -176,7 +203,10 @@ export async function openV3Group(
   const done = log.time(`open ${url}`, "info");
   if (isIcechunkUrl(url) || (await hasIcechunkRepoConfig(url))) {
     log.info(`open (icechunk) ${url}`);
-    const opened = await openIcechunk(url, options.consolidated ?? false);
+    const opened = await openIcechunk(url, options.consolidated ?? false, {
+      branch: options.branch,
+      snapshot: options.snapshot,
+    });
     done();
     return opened;
   }
@@ -227,4 +257,41 @@ export function asConsolidated(store: zarr.Readable): ConsolidatedStore | null {
 export function asIcechunk(store: zarr.Readable): IcechunkInfo | null {
   const info = (store as IcechunkAwareStore).icechunk;
   return info ?? null;
+}
+
+/** A commit in an Icechunk branch's history (most-recent first). */
+export type IcechunkSnapshot = {
+  /** Base32 snapshot id (feeds `openV3Group({ snapshot })`). */
+  id: string;
+  message: string;
+  flushedAt: Date;
+};
+
+/** Walk an Icechunk branch's snapshot history (tip → older), capped at `limit`.
+ *
+ * Loaded lazily/off the hot path — most stores load without it, and a store like
+ * HRRR has thousands of snapshots, so we only surface the most recent `limit`
+ * for the snapshot selector. Guarded: any failure (e.g. plain-HTTP listing
+ * limits) returns what was collected so far (possibly `[]`). */
+export async function listIcechunkSnapshots(
+  url: string,
+  branch: string,
+  limit = 25,
+): Promise<IcechunkSnapshot[]> {
+  const out: IcechunkSnapshot[] = [];
+  try {
+    const repo = await Repository.open({ storage: new HttpStorage(url) });
+    const session = await repo.checkoutBranch(branch);
+    for await (const snap of repo.walkHistory(session)) {
+      out.push({
+        id: snap.id,
+        message: snap.message,
+        flushedAt: snap.flushedAt,
+      });
+      if (out.length >= limit) break;
+    }
+  } catch (err) {
+    log.debug(`listIcechunkSnapshots("${url}", "${branch}") failed`, err);
+  }
+  return out;
 }

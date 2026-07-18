@@ -56,35 +56,18 @@ type Props = {
   geographic?: boolean;
 };
 
-/** Always-visible orientation block at the top of the Options panel: the
- * store's identity (URL / format) and a compact dimensions table pairing each
- * dimension's shape with its chunk size. Sits above the Data controls. */
+/** Always-visible orientation block at the top of the Options panel: a compact
+ * dimensions table pairing each dimension's shape with its chunk size. Sits
+ * above the Data controls. Store identity (URL / format / conventions) lives in
+ * the collapsible Structure section below. */
 export function ArrayOverview({
-  state,
-  group,
   structure,
   node,
 }: {
-  state: ViewerState;
-  group: zarr.Group<zarr.Readable>;
   structure: StructureProfileSummary;
   node: Props["node"];
 }) {
-  const icechunk = asIcechunk(group.store);
-  const consolidated = asConsolidated(group.store) !== null;
-  const conventions = detectConventions(group.attrs);
-  return (
-    <>
-      <StoreSection
-        url={state.url}
-        zarrVersion={structure.zarrVersion}
-        consolidated={consolidated}
-        icechunk={icechunk}
-        conventions={conventions}
-      />
-      <DimensionsTable node={node} structure={structure} />
-    </>
-  );
+  return <DimensionsTable node={node} structure={structure} />;
 }
 
 /** Store-introspection content, rendered as a collapsible section inside the
@@ -93,12 +76,16 @@ export function ArrayOverview({
 export function StructureSection({
   state,
   update,
+  group,
   node,
   structure,
   codecs,
   geographic = true,
 }: Props) {
   const isOpen = state.panelStructure === "open";
+  const icechunk = asIcechunk(group.store);
+  const consolidated = asConsolidated(group.store) !== null;
+  const conventions = detectConventions(group.attrs);
   return (
     <details
       className="section"
@@ -127,12 +114,90 @@ export function StructureSection({
       </summary>
 
       <div className="section-body">
+        <StoreSection
+          url={state.url}
+          zarrVersion={structure.zarrVersion}
+          consolidated={consolidated}
+          icechunk={icechunk}
+        />
+        <ConventionsSection conventions={conventions} icechunk={icechunk} />
         <VariableSection structure={structure} node={node} />
         <ShardingSection codecs={codecs} />
         {geographic && <GeoZarrSection structure={structure} />}
         <AttributesSection node={node} />
       </div>
     </details>
+  );
+}
+
+/** Store-level provenance: the declared Zarr conventions and (for Icechunk
+ * stores) the repo's tags. Branch/snapshot/branches were moved to the
+ * interactive selectors in the Options panel, so they're not repeated here. */
+function ConventionsSection({
+  conventions,
+  icechunk,
+}: {
+  conventions: ConventionEntry[];
+  icechunk: IcechunkInfo | null;
+}) {
+  return (
+    <div className="section">
+      <span
+        className="section-title"
+        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+      >
+        Conventions
+        <InfoIcon text="Zarr conventions explicitly declared by the store's root group: the 'zarr_conventions' registry attribute, CF/ACDD/UGRID tokens in the 'Conventions' attribute, and OME-Zarr (a 'multiscales' attribute with an 'axes' field). Names link to their canonical specification when one is known; a warning icon marks a convention inferred from a legacy signal rather than the registry." />
+      </span>
+      <div style={{ marginTop: 6 }}>
+        {conventions.length > 0 ? (
+          <span
+            style={{
+              display: "inline-flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              columnGap: 6,
+              rowGap: 2,
+            }}
+          >
+            {conventions.map((c, i) => {
+              const label = c.version ? `${c.name}-${c.version}` : c.name;
+              const comma = i < conventions.length - 1 ? "," : "";
+              return (
+                <span
+                  key={c.name}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+                >
+                  <span>
+                    {c.specUrl ? (
+                      <a href={c.specUrl} target="_blank" rel="noreferrer">
+                        {label}
+                      </a>
+                    ) : (
+                      label
+                    )}
+                    {comma}
+                  </span>
+                  {c.legacy && <WarningIcon text={c.legacy} />}
+                </span>
+              );
+            })}
+          </span>
+        ) : (
+          <span className="meta-muted">(none listed)</span>
+        )}
+      </div>
+      {icechunk && (
+        <dl className="meta-kv" style={{ marginTop: 8 }}>
+          <KV
+            label="Tags"
+            info="Icechunk tags in the repo — named, immutable aliases for specific snapshots. Empty for v1 stores read over plain HTTP (the proxy can't list refs)."
+          >
+            {icechunk.tags.length > 0 ? icechunk.tags.join(", ") : "(none listed)"}
+          </KV>
+        </dl>
+      )}
+    </div>
   );
 }
 
@@ -203,13 +268,11 @@ function StoreSection({
   zarrVersion,
   consolidated,
   icechunk,
-  conventions,
 }: {
   url: string | null;
   zarrVersion: "v2" | "v3";
   consolidated: boolean;
   icechunk: IcechunkInfo | null;
-  conventions: ConventionEntry[];
 }) {
   return (
     <div className="section">
@@ -228,9 +291,10 @@ function StoreSection({
         >
           {icechunk ? `Icechunk ${icechunk.specVersion} · Zarr ${zarrVersion}` : `Zarr ${zarrVersion}`}
         </KV>
-        {icechunk ? (
-          <IcechunkRows icechunk={icechunk} />
-        ) : (
+        {/* Icechunk branch/snapshot/branches now live in the interactive
+            selectors (Options panel); tags + conventions moved to the Structure
+            section. Only the plain-Zarr "Consolidated" row remains here. */}
+        {!icechunk && (
           <KV
             label="Consolidated"
             info="Whether the store ships a pre-built 'table of contents' that lists every node's metadata in one file. With consolidated metadata, the client opens sub-arrays without an extra HTTP request — important for stores with many variables. Without it, every zarr.open() of a sub-array is its own round trip."
@@ -238,100 +302,9 @@ function StoreSection({
             <YesNoPill value={consolidated} />
           </KV>
         )}
-        <KV
-          label="Conventions"
-          info="Zarr conventions explicitly declared by the store's root group: the 'zarr_conventions' registry attribute, CF/ACDD/UGRID tokens in the 'Conventions' attribute, and OME-Zarr (a 'multiscales' attribute with an 'axes' field). Names link to their canonical specification when one is known; a warning icon marks a convention inferred from a legacy signal rather than the registry."
-        >
-          {conventions.length > 0 ? (
-            <span
-              style={{
-                display: "inline-flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                columnGap: 6,
-                rowGap: 2,
-              }}
-            >
-              {conventions.map((c, i) => {
-                const label = c.version ? `${c.name}-${c.version}` : c.name;
-                const comma = i < conventions.length - 1 ? "," : "";
-                return (
-                  <span
-                    key={c.name}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
-                  >
-                    <span>
-                      {c.specUrl ? (
-                        <a href={c.specUrl} target="_blank" rel="noreferrer">
-                          {label}
-                        </a>
-                      ) : (
-                        label
-                      )}
-                      {comma}
-                    </span>
-                    {c.legacy && <WarningIcon text={c.legacy} />}
-                  </span>
-                );
-              })}
-            </span>
-          ) : (
-            "(none listed)"
-          )}
-        </KV>
       </dl>
     </div>
   );
-}
-
-function IcechunkRows({ icechunk }: { icechunk: IcechunkInfo }) {
-  // Snapshot IDs are 20-char Base32; show a short prefix with the full id on
-  // hover, plus the commit message and flush time as muted sub-lines.
-  const shortId = icechunk.snapshotId.slice(0, 8);
-  return (
-    <>
-      <KV
-        label="Branch"
-        info="The Icechunk branch the viewer checked out (always the latest snapshot on that branch). The viewer reads the default branch; switching branches isn't supported here."
-      >
-        {icechunk.branch}
-      </KV>
-      <KV
-        label="Snapshot"
-        info={`Immutable snapshot ${icechunk.snapshotId} — the exact repo version being read.`}
-      >
-        <div style={{ display: "grid", gap: 2 }}>
-          <span className="mono" title={icechunk.snapshotId}>
-            {shortId}…
-          </span>
-          {icechunk.message && (
-            <span className="meta-muted" style={{ fontSize: 11, lineHeight: 1.4 }}>
-              {formatJson(icechunk.message)}
-            </span>
-          )}
-          <span className="meta-muted" style={{ fontSize: 11 }}>
-            {formatFlushedAt(icechunk.flushedAt)}
-          </span>
-        </div>
-      </KV>
-      <KV
-        label="Branches"
-        info="Other branches in the repo. Empty for v1 Icechunk stores read over plain HTTP — the proxy can't list refs, so only the checked-out branch is known."
-      >
-        {icechunk.branches.length > 0 ? icechunk.branches.join(", ") : "(none listed)"}
-      </KV>
-      <KV label="Tags">
-        {icechunk.tags.length > 0 ? icechunk.tags.join(", ") : "(none listed)"}
-      </KV>
-    </>
-  );
-}
-
-function formatFlushedAt(d: Date): string {
-  const t = d.getTime();
-  if (!Number.isFinite(t)) return "—";
-  // Trim milliseconds: "2026-01-20T11:28:33Z".
-  return d.toISOString().replace(/\.\d+Z$/, "Z");
 }
 
 function YesNoPill({ value }: { value: boolean }) {

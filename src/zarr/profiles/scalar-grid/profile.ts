@@ -545,11 +545,11 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     metadata: ctx.spatialAttrs,
   }),
 
-  async prepare(url, signal) {
+  async prepare(url, signal, open = {}) {
     const done = log.time("scalar-grid prepare", "info");
     let opened: OpenedStore;
     try {
-      opened = await openV3Group(url, { consolidated: true });
+      opened = await openV3Group(url, { consolidated: true, ...open });
     } catch (openErr) {
       // v3 open failed. OME-Zarr v0.4 (Zarr v2) has no root zarr.json, so this
       // is where v0.4 bioimaging lands. Retry a metadata-only auto-version open
@@ -558,7 +558,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       // This extra open runs ONLY after the v3 open already failed — the
       // geographic v3 fast path pays nothing.
       try {
-        const probe = await openV3Group(url, { consolidated: false });
+        const probe = await openV3Group(url, { consolidated: false, ...open });
         if (isOmeZarrAttrs(probe.group.attrs)) throw new OmeZarrStoreError();
       } catch (probeErr) {
         if (probeErr instanceof OmeZarrStoreError) throw probeErr;

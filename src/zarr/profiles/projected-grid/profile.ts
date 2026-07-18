@@ -40,9 +40,9 @@ export const projectedGridProfile: ZarrProfile<
   id: "projected-grid",
   label: "Projected grid (colormap)",
 
-  async prepare(url, signal) {
+  async prepare(url, signal, open = {}) {
     const done = log.time("projected-grid prepare", "info");
-    const opened = await openV3Group(url, { consolidated: true });
+    const opened = await openV3Group(url, { consolidated: true, ...open });
     const arrays = new Map<
       string,
       zarr.Array<zarr.DataType, zarr.Readable>

@@ -47,9 +47,9 @@ export const multiscaleGridProfile: ZarrProfile<
   label: "Multiscale grid (colormap)",
   needsColormap: true,
 
-  async prepare(url, signal) {
+  async prepare(url, signal, open = {}) {
     const done = log.time("multiscale-grid prepare", "info");
-    const opened = await openV3Group(url, { consolidated: true });
+    const opened = await openV3Group(url, { consolidated: true, ...open });
     const datasets = parseMultiscaleDatasets(opened.group.attrs); // coarsest→finest
     if (!datasets) {
       throw new Error("Not a multiscale store (no `multiscales` root attr).");

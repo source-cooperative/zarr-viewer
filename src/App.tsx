@@ -38,6 +38,12 @@ import * as tileActivity from "./render/tile-activity";
 import type { AutoStats } from "./render/stats";
 import { subscribeTileHealth } from "./zarr/tile-error";
 import { detectProfile, normalizeStoreUrl } from "./source";
+import {
+  asIcechunk,
+  listIcechunkSnapshots,
+  type IcechunkInfo,
+  type IcechunkSnapshot,
+} from "./zarr/load-zarr";
 import { MultiscaleStoreError } from "./zarr/multiscale";
 import { ProjectedGridStoreError } from "./zarr/projected";
 import { OmeZarrStoreError } from "./zarr/profiles/image-orthographic/ome";
@@ -92,6 +98,8 @@ export default function App() {
   const [autoStats, setAutoStats] = useState<AutoStats | null>(null);
   const [codecSummary, setCodecSummary] = useState<CodecSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Resolved Icechunk ref info for the current store (null for plain Zarr).
+  const [icechunk, setIcechunk] = useState<IcechunkInfo | null>(null);
   // True when tiles are repeatedly failing to load (non-abort). Drives a
   // non-blocking "loading slowly" notice; reset when a tile next succeeds or
   // the user dismisses it.
@@ -227,15 +235,23 @@ export default function App() {
     setNode(null);
     setAutoStats(null);
     setError(null);
+    setIcechunk(null);
     if (!state.url || !profile) return;
     const ctrl = new AbortController();
     log.info(`load: profile "${profile.id}" url=${state.url}`);
     (async () => {
       try {
-        const ctx = await profile.prepare(state.url!, ctrl.signal);
+        const ctx = await profile.prepare(state.url!, ctrl.signal, {
+          branch: state.branch,
+          snapshot: state.snapshot,
+        });
         if (ctrl.signal.aborted) return;
         log.info("profile context ready");
         setProfileCtx(ctx);
+        // Surface the resolved Icechunk ref info (branch/snapshot/branches) for
+        // the chassis selectors. `group.store` carries the attached info for
+        // any profile; null for plain-Zarr stores (selectors stay hidden).
+        setIcechunk(asIcechunk(ctx.group.store));
         // Skip the profile's auto-fit when the URL has explicit view
         // params — the user's view wins.
         if (state.view) return;
@@ -286,8 +302,24 @@ export default function App() {
     return () => ctrl.abort();
     // state.view is read above but intentionally excluded from deps:
     // user-driven view updates must not retrigger a fitBounds.
+    // state.branch/state.snapshot ARE deps: changing a ref re-opens the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.url, profile]);
+  }, [state.url, profile, state.branch, state.snapshot]);
+
+  // Lazily load the selected branch's recent snapshot history for the snapshot
+  // selector — kept off the store-open hot path (most loads never need it).
+  const [snapshots, setSnapshots] = useState<IcechunkSnapshot[] | null>(null);
+  useEffect(() => {
+    setSnapshots(null);
+    if (!icechunk || !state.url) return;
+    let cancelled = false;
+    listIcechunkSnapshots(state.url, icechunk.branch).then((list) => {
+      if (!cancelled) setSnapshots(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.url, icechunk]);
 
   // After ctx is ready and the URL didn't pin a view, fly to the
   // profile's preferred initial view (e.g. AEF's location preset).
@@ -632,6 +664,8 @@ export default function App() {
           showSingleBandControls={showSingleBandControls}
           geographic={geographic}
           autoStats={autoStats}
+          icechunk={icechunk}
+          snapshots={snapshots}
           profileFetchSlot={profile.Controls({
             ctx: profileCtx,
             state: profileState,
@@ -664,12 +698,7 @@ export default function App() {
           })}
           overviewSlot={
             structureSummary ? (
-              <ArrayOverview
-                state={state}
-                group={profileCtx.group}
-                structure={structureSummary}
-                node={node}
-              />
+              <ArrayOverview structure={structureSummary} node={node} />
             ) : null
           }
           structureSlot={

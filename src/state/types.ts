@@ -23,6 +23,11 @@ export type ViewerState = {
   labelsAbove: boolean;
   /** Explicit profile id override (`?p=`). Inferred from `url` when null. */
   profileId: string | null;
+  /** Icechunk ref selection (`?branch=` / `?snapshot=`). Only meaningful for
+   * Icechunk stores; ignored for plain Zarr. `null` = the repo's default
+   * branch / that branch's latest snapshot. */
+  branch: string | null;
+  snapshot: string | null;
   /** Initial map view from the URL, as `[longitude, latitude, zoom]`.
    * When present, overrides profile-supplied initialBounds / initialView.
    * Re-serialized on every user-initiated map move. */

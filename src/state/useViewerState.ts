@@ -94,6 +94,8 @@ export function parseViewerState(p: URLSearchParams): ViewerState {
     rescale: parseRescale(p.get("rescale")),
     labelsAbove: p.get("labels") !== "below",
     profileId: p.get("p"),
+    branch: p.get("branch"),
+    snapshot: p.get("snapshot"),
     view: parseView(p.get("lng"), p.get("lat"), p.get("zoom")),
     minZoomOverride: parseMinZoomOverride(p.get("min_zoom")),
   };
@@ -145,6 +147,14 @@ function applyChassisPatch(p: URLSearchParams, patch: ViewerStateUpdate): void {
   if (patch.profileId !== undefined) {
     if (patch.profileId) p.set("p", patch.profileId);
     else p.delete("p");
+  }
+  if (patch.branch !== undefined) {
+    if (patch.branch) p.set("branch", patch.branch);
+    else p.delete("branch");
+  }
+  if (patch.snapshot !== undefined) {
+    if (patch.snapshot) p.set("snapshot", patch.snapshot);
+    else p.delete("snapshot");
   }
   if (patch.view !== undefined) {
     if (patch.view) {

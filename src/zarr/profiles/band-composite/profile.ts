@@ -68,8 +68,8 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
   // panel show shape/dtype/chunks/fillValue.
   resolveNode: async (ctx) => ctx.embeddings,
 
-  async prepare(url, _signal) {
-    const opened = await openV3Group(url, { consolidated: true });
+  async prepare(url, _signal, open = {}) {
+    const opened = await openV3Group(url, { consolidated: true, ...open });
     const { name, arr: embeddings } = await findBandVariable(opened.group);
     const bandLabels = await fetchBandLabels(opened.group);
     const nd = embeddings.shape.length;
