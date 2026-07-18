@@ -164,8 +164,11 @@ function LiveSlider({
   formatValue: (v: number) => string;
   tint?: string;
 }) {
+  // Group, not a <label>: a <label> would associate with StepperRange's first
+  // button and double-fire its clicks in some embedded webviews (see
+  // PlaybackSlider for the full explanation).
   return (
-    <label style={tintLabelStyle(tint)}>
+    <div role="group" aria-label={label} style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}
@@ -176,6 +179,6 @@ function LiveSlider({
         </span>
       </span>
       <StepperRange value={value} min={min} max={max} onChange={onChange} />
-    </label>
+    </div>
   );
 }
