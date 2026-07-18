@@ -13,6 +13,12 @@ const URL_HRRR = normalizeStoreUrl(
   "https://source.coop/dynamical/noaa-hrrr-forecast-48-hour-virtual/v0.5.0.icechunk",
 );
 
+// The materialized/time-optimized counterpart: plain Zarr, sharded
+// (blosc, no gribberish), same Lambert Conformal grid.
+const URL_HRRR_NONVIRTUAL = normalizeStoreUrl(
+  "https://source.coop/dynamical/noaa-hrrr-forecast-48-hour/v0.1.0.zarr",
+);
+
 const signal = () => new AbortController().signal;
 
 test("scalar-grid hands off HRRR (projected Lambert grid) to projected-grid", {
@@ -50,4 +56,21 @@ test("projected-grid prepare emits Lambert Conformal WKT metadata", {
 
   // Hover sampling is intentionally disabled for projected grids.
   expect(projectedGridProfile.sampleValue?.(ctx, state, -96, 38)).toBeNull();
+});
+
+test("projected-grid prepares the sharded non-virtual HRRR Zarr (shard-aware gate)", {
+  timeout: 300_000,
+}, async () => {
+  // scalar-grid hands it off (same Lambert grid) even though it's a plain Zarr.
+  await expect(
+    scalarGridProfile.prepare(URL_HRRR_NONVIRTUAL, signal()),
+  ).rejects.toBeInstanceOf(ProjectedGridStoreError);
+
+  const ctx = await projectedGridProfile.prepare(URL_HRRR_NONVIRTUAL, signal());
+  const attrs = ctx.spatialAttrs as { "proj:wkt2": string };
+  expect(attrs["proj:wkt2"]).toContain("Lambert_Conformal_Conic");
+  expect(ctx.variables.some((v) => v.name === "temperature_2m")).toBe(true);
+  // The outer shard [.,.,1060,1800] spans the plane, so the gate must be 0 (a
+  // world/CONUS view renders) — not mis-gated by the small 265×300 inner chunk.
+  expect(ctx.minRenderZoom).toBe(0);
 });

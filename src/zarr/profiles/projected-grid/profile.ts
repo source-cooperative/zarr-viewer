@@ -22,6 +22,7 @@ import {
   deriveMinZoom,
   enumerateVariables,
   scalarGridProfile,
+  shardSpatialShape,
 } from "../scalar-grid/profile";
 import type {
   ScalarGridContext,
@@ -85,15 +86,33 @@ export const projectedGridProfile: ZarrProfile<
     // Projected transforms are already in metres, so the pixel width is the
     // ground resolution directly (no degrees→metres conversion).
     const metersPerPx = Math.abs(transform[0]);
-    const innerH = firstArr.chunks[nd - 2] ?? 256;
-    const innerW = firstArr.chunks[nd - 1] ?? 256;
+    // For a sharded array (e.g. the materialized/time-optimized HRRR Zarr,
+    // sharded [1,49,1060,1800]), the atomic fetch is the OUTER shard, not the
+    // inner sub-chunk, so gate on the shard when it spans the whole plane —
+    // otherwise the small inner chunk mis-gates the store to a high zoom and it
+    // renders blank at world/CONUS view. Mirrors the scalar-grid gate.
+    let chunkH = firstArr.chunks[nd - 2] ?? 256;
+    let chunkW = firstArr.chunks[nd - 1] ?? 256;
+    try {
+      const raw = await opened.store.get(
+        `/${first.name}/zarr.json` as `/${string}`,
+      );
+      const shard = raw
+        ? shardSpatialShape(JSON.parse(new TextDecoder().decode(raw)))
+        : null;
+      if (shard && shard[0] >= height && shard[1] >= width) {
+        [chunkH, chunkW] = shard;
+      }
+    } catch {
+      // keep inner chunk
+    }
     const bundledChunkEls = firstArr.chunks
       .slice(0, nd - 2)
       .reduce((a, b) => a * b, 1);
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
-      innerW,
-      innerH,
+      chunkW,
+      chunkH,
       bytesPerElement(firstArr.dtype),
       width,
       height,
