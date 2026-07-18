@@ -56,33 +56,18 @@ type Props = {
   geographic?: boolean;
 };
 
-/** Always-visible orientation block at the top of the Options panel: the
- * store's identity (URL / format) and a compact dimensions table pairing each
- * dimension's shape with its chunk size. Sits above the Data controls. */
+/** Always-visible orientation block at the top of the Options panel: a compact
+ * dimensions table pairing each dimension's shape with its chunk size. Sits
+ * above the Data controls. Store identity (URL / format / conventions) lives in
+ * the collapsible Structure section below. */
 export function ArrayOverview({
-  state,
-  group,
   structure,
   node,
 }: {
-  state: ViewerState;
-  group: zarr.Group<zarr.Readable>;
   structure: StructureProfileSummary;
   node: Props["node"];
 }) {
-  const icechunk = asIcechunk(group.store);
-  const consolidated = asConsolidated(group.store) !== null;
-  return (
-    <>
-      <StoreSection
-        url={state.url}
-        zarrVersion={structure.zarrVersion}
-        consolidated={consolidated}
-        icechunk={icechunk}
-      />
-      <DimensionsTable node={node} structure={structure} />
-    </>
-  );
+  return <DimensionsTable node={node} structure={structure} />;
 }
 
 /** Store-introspection content, rendered as a collapsible section inside the
@@ -99,6 +84,7 @@ export function StructureSection({
 }: Props) {
   const isOpen = state.panelStructure === "open";
   const icechunk = asIcechunk(group.store);
+  const consolidated = asConsolidated(group.store) !== null;
   const conventions = detectConventions(group.attrs);
   return (
     <details
@@ -128,11 +114,17 @@ export function StructureSection({
       </summary>
 
       <div className="section-body">
+        <StoreSection
+          url={state.url}
+          zarrVersion={structure.zarrVersion}
+          consolidated={consolidated}
+          icechunk={icechunk}
+        />
+        <ConventionsSection conventions={conventions} icechunk={icechunk} />
         <VariableSection structure={structure} node={node} />
         <ShardingSection codecs={codecs} />
         {geographic && <GeoZarrSection structure={structure} />}
         <AttributesSection node={node} />
-        <ConventionsSection conventions={conventions} icechunk={icechunk} />
       </div>
     </details>
   );

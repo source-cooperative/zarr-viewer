@@ -698,12 +698,7 @@ export default function App() {
           })}
           overviewSlot={
             structureSummary ? (
-              <ArrayOverview
-                state={state}
-                group={profileCtx.group}
-                structure={structureSummary}
-                node={node}
-              />
+              <ArrayOverview structure={structureSummary} node={node} />
             ) : null
           }
           structureSlot={
