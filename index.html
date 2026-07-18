@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoZarr Viewer</title>
+    <!-- Cross-origin isolation (COOP+COEP) so SharedArrayBuffer is available for
+         the gribberish GRIB2 codec's threaded WASM. GitHub Pages can't set the
+         headers, so this service-worker shim adds them client-side (COEP
+         `credentialless` by default, which keeps the cross-origin basemap and
+         data.source.coop fetches working, and degrades gracefully otherwise).
+         Local dev/preview also get the headers from vite.config. Loaded first so
+         isolation is gained before the app boots. -->
+    <script src="./coi-serviceworker.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Warm the TCP+TLS handshake to the byte-serving host so the first

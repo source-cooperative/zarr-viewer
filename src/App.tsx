@@ -39,6 +39,7 @@ import type { AutoStats } from "./render/stats";
 import { subscribeTileHealth } from "./zarr/tile-error";
 import { detectProfile, normalizeStoreUrl } from "./source";
 import { MultiscaleStoreError } from "./zarr/multiscale";
+import { ProjectedGridStoreError } from "./zarr/projected";
 import { OmeZarrStoreError } from "./zarr/profiles/image-orthographic/ome";
 import { getProfile } from "./zarr/profiles";
 import {
@@ -265,6 +266,16 @@ export default function App() {
           if (!state.profileId && state.url) {
             log.info("switching to image-orthographic profile");
             setAutoProfile({ url: state.url, id: "image-orthographic" });
+          }
+          return;
+        }
+        if (err instanceof ProjectedGridStoreError) {
+          // The default profile detected a projected (e.g. Lambert Conformal)
+          // grid → switch to the projected-grid profile (which re-runs
+          // prepare). No error toast.
+          if (!state.profileId && state.url) {
+            log.info("switching to projected-grid profile");
+            setAutoProfile({ url: state.url, id: "projected-grid" });
           }
           return;
         }

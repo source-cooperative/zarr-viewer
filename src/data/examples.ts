@@ -106,6 +106,28 @@ export const EXAMPLES: Example[] = [
     // temperature_2m (a preferred variable) at the first init_time/lead_time.
     params: { lng: "15", lat: "50", zoom: "4" },
   },
+  // Two views of the SAME NOAA HRRR forecast (CONUS 3 km, 0–48 h, 6-hourly
+  // init), for comparing dynamical.org's virtual vs materialized products.
+  // Both sit on the identical Lambert Conformal Conic grid, so both render via
+  // the projected-grid profile (proj4 reprojection) and land on temperature_2m
+  // with init_time/lead_time sliders; centered on CONUS.
+  {
+    title: "NOAA HRRR — 2 m Temperature (virtual GRIB store, CONUS 3 km)",
+    url: "https://source.coop/dynamical/noaa-hrrr-forecast-48-hour-virtual/v0.5.0.icechunk",
+    // VIRTUAL: each chunk is a raw GRIB2 message decoded on the fly by the
+    // gribberish codec (float64). NB the threaded GRIB WASM needs cross-origin
+    // isolation (see coi-serviceworker).
+    params: { lng: "-96", lat: "38", zoom: "4" },
+  },
+  {
+    title: "NOAA HRRR — 2 m Temperature (time-optimized Zarr, CONUS 3 km)",
+    url: "https://source.coop/dynamical/noaa-hrrr-forecast-48-hour/v0.1.0.zarr",
+    // MATERIALIZED: a plain Zarr rechunked/sharded ([1,49,1060,1800] shards of
+    // 265×300 blosc inner chunks, float32) — standard codecs, no gribberish. The
+    // whole-plane shard means the min-zoom gate is shard-aware (renders at world
+    // view). Same grid/variables as the virtual store above, for A/B comparison.
+    params: { lng: "-96", lat: "38", zoom: "4" },
+  },
   {
     title: "CarbonPlan — Wildfire burn probability (CONUS)",
     url: "https://source.coop/carbonplan/carbonplan-ocr/output/fire-risk/tensor/production/v1.1.0/ocr.icechunk",

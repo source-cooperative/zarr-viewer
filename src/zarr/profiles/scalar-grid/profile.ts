@@ -18,6 +18,10 @@ import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group, type OpenedStore } from "../../load-zarr";
 import { assertCodecsSupported } from "../../unsupported-codec";
 import { MultiscaleStoreError, parseMultiscaleDatasets } from "../../multiscale";
+import {
+  ProjectedGridStoreError,
+  readProjectedSpatialRef,
+} from "../../projected";
 import { OmeZarrStoreError, isOmeZarrAttrs } from "../image-orthographic/ome";
 
 const log = createLogger("profile");
@@ -586,6 +590,17 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     // so this metadata check is what surfaces the problem up front.
     await assertCodecsSupported(opened.store, first.name);
     const pair = spatialPair(firstArr.dimensionNames)!;
+
+    // Projected (non-lat/lon) grid — e.g. NOAA HRRR's Lambert Conformal grid.
+    // The synthesize path below reads the last two 1-D coord arrays as degrees;
+    // for a projected store those are `y`/`x` metres, so hand off to the
+    // projected-grid profile (which reprojects via the CRS WKT). Only probe when
+    // the axes use the projected `y`/`x` naming (avoids a spatial_ref fetch for
+    // lat/lon stores), and only hand off when spatial_ref is genuinely projected.
+    if (pair.lat === "y" && pair.lon === "x") {
+      const projected = await readProjectedSpatialRef(opened.group, first.group);
+      if (projected) throw new ProjectedGridStoreError();
+    }
 
     // Grid: prefer the store's own GeoZarr attrs (e.g. FTW/AEF); else
     // synthesize from the lat/lon coord arrays (e.g. ECMWF/icechunk grids).
