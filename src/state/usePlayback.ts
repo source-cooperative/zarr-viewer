@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_SPEED,
   frameIntervalMs,
@@ -31,13 +31,6 @@ export function usePlayback(
   const [speed, setSpeed] = useState<number>(DEFAULT_SPEED);
   const [index, setIndex] = useState(currentIndex);
 
-  // Always call the latest commit callback / read the latest frame without
-  // re-arming the timer effect.
-  const commitRef = useRef(onCommit);
-  commitRef.current = onCommit;
-  const indexRef = useRef(index);
-  indexRef.current = index;
-
   // Stop (drop back to manual) whenever the animatable dim changes or vanishes.
   const key = playable ? `${playable.name}:${playable.size}` : null;
   useEffect(() => {
@@ -55,23 +48,25 @@ export function usePlayback(
 
   const toggle = useCallback(() => {
     if (!playable) return;
-    setPlaying((was) => {
-      if (was) {
-        commitRef.current(indexRef.current); // pausing → commit current frame
-        return false;
-      }
+    if (playing) {
+      onCommit(index); // pausing → commit the current frame (once)
+      setPlaying(false);
+    } else {
       setIndex(currentIndex); // starting → continue from the slider
-      return true;
-    });
-  }, [playable, currentIndex]);
+      setPlaying(true);
+    }
+  }, [playable, playing, index, currentIndex, onCommit]);
 
   const cycleSpeed = useCallback(() => setSpeed((s) => nextSpeed(s)), []);
 
-  const seekTo = useCallback((i: number) => {
-    setPlaying(false);
-    setIndex(i);
-    commitRef.current(i);
-  }, []);
+  const seekTo = useCallback(
+    (i: number) => {
+      setPlaying(false);
+      setIndex(i);
+      onCommit(i);
+    },
+    [onCommit],
+  );
 
   return { playing, speed, index, toggle, cycleSpeed, seekTo };
 }

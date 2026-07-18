@@ -60,4 +60,15 @@ describe("usePlayback", () => {
     rerender({ p: { name: "step", size: 5 } });
     expect(result.current.playing).toBe(false);
   });
+
+  it("stops playing when the playable dim vanishes", () => {
+    const { result, rerender } = renderHook(
+      ({ p }: { p: Playable | null }) => usePlayback(p, 0, vi.fn()),
+      { initialProps: { p: DIM } },
+    );
+    act(() => result.current.toggle());
+    expect(result.current.playing).toBe(true);
+    rerender({ p: null });
+    expect(result.current.playing).toBe(false);
+  });
 });
