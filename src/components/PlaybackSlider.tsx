@@ -31,8 +31,13 @@ export function PlaybackSlider({
   formatValue,
   tint,
 }: Props) {
+  // NOTE: this is a <div role="group">, not a <label>. A <label> would
+  // implicitly associate with its first labelable descendant (the Play button)
+  // and some embedded webviews (e.g. Cursor's preview) then double-fire that
+  // button's click via the label — toggling play on then off, so Play appears
+  // to do nothing. A group has no such click-forwarding.
   return (
-    <label style={tintLabelStyle(tint)}>
+    <div role="group" aria-label={label} style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}
@@ -72,7 +77,7 @@ export function PlaybackSlider({
         </button>
       </div>
       <StepperRange value={value} min={min} max={max} onChange={onSeek} />
-    </label>
+    </div>
   );
 }
 
