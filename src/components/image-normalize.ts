@@ -14,6 +14,7 @@ export function styleToRgba(
   max: number,
   gamma: number,
   lut?: Uint8Array | null,
+  maskOutside = false,
 ): Uint8ClampedArray<ArrayBuffer> {
   const n = width * height;
   const span = max - min || 1;
@@ -21,8 +22,9 @@ export function styleToRgba(
   const useGamma = gamma !== 1;
   const rgba = new Uint8ClampedArray(n * 4);
   for (let i = 0; i < n; i++) {
-    let t = (Number(data[i]) - min) / span;
-    t = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    const raw = (Number(data[i]) - min) / span;
+    const outside = raw < 0 || raw > 1;
+    let t = raw <= 0 ? 0 : raw >= 1 ? 1 : raw;
     if (useGamma) t = Math.pow(t, invGamma);
     const o = i * 4;
     if (lut) {
@@ -36,7 +38,7 @@ export function styleToRgba(
       rgba[o + 1] = byte;
       rgba[o + 2] = byte;
     }
-    rgba[o + 3] = 255;
+    rgba[o + 3] = maskOutside && outside ? 0 : 255;
   }
   return rgba;
 }

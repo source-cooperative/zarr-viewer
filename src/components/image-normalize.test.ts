@@ -39,4 +39,25 @@ describe("styleToRgba", () => {
     const rgba = styleToRgba([100], 1, 1, 0, 100, 1, lut);
     expect(Array.from(rgba.slice(0, 4))).toEqual([255, 0, 0, 255]);
   });
+
+  it("masks out-of-range pixels (alpha 0) when maskOutside is true", () => {
+    // window [0,100]: -50 below, 50 inside, 200 above.
+    const rgba = styleToRgba([-50, 50, 200], 3, 1, 0, 100, 1, null, true);
+    expect(rgba[3]).toBe(0); // below → transparent
+    expect(rgba[7]).toBe(255); // inside → opaque
+    expect(rgba[11]).toBe(0); // above → transparent
+  });
+
+  it("keeps window-boundary values opaque when masking", () => {
+    // Exactly at min (0) and max (100) are inclusive → kept.
+    const rgba = styleToRgba([0, 100], 2, 1, 0, 100, 1, null, true);
+    expect(rgba[3]).toBe(255);
+    expect(rgba[7]).toBe(255);
+  });
+
+  it("keeps all pixels opaque when maskOutside is false", () => {
+    const rgba = styleToRgba([-50, 200], 2, 1, 0, 100, 1, null, false);
+    expect(rgba[3]).toBe(255);
+    expect(rgba[7]).toBe(255);
+  });
 });
