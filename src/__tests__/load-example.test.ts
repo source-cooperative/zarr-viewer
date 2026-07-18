@@ -9,6 +9,16 @@ describe("buildExampleLoadPatch", () => {
     expect(patch.url).toBe("https://example.com/data.zarr");
   });
 
+  it("clears a stale Icechunk branch/snapshot when switching sources", () => {
+    const current = new URLSearchParams("branch=dev&snapshot=ABC123");
+    const patch = buildExampleLoadPatch(current, {
+      url: "https://example.com/other.icechunk",
+    });
+    // Ref selection is store-specific — must not carry across a source switch.
+    expect(patch.branch).toBeNull();
+    expect(patch.snapshot).toBeNull();
+  });
+
   it("applies example defaults when the current URL has no overlap", () => {
     const patch = buildExampleLoadPatch(new URLSearchParams(), {
       url: "https://example.com/data.zarr",

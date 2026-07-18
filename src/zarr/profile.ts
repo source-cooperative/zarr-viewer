@@ -17,6 +17,13 @@ export type ProfileBaseContext = {
   minRenderZoom?: number;
 };
 
+/** Icechunk ref selection threaded from chassis state into `prepare` →
+ * `openV3Group` → `openIcechunk`. Ignored for plain-Zarr stores. */
+export type StoreOpenOptions = {
+  branch?: string | null;
+  snapshot?: string | null;
+};
+
 /** Which bucket of controls to render. The Options panel groups controls by
  * cost/kind and asks each profile for one bucket at a time:
  *   - "fetch": data selectors that refetch chunks (variable, fetched dims)
@@ -69,7 +76,11 @@ export type ZarrProfile<
    *     `initialView` are unused; the {@link ImageViewer} reads `ctx`+`state`
    *     directly. */
   host?: "map" | "image";
-  prepare: (url: string, signal: AbortSignal) => Promise<Ctx>;
+  prepare: (
+    url: string,
+    signal: AbortSignal,
+    open?: StoreOpenOptions,
+  ) => Promise<Ctx>;
   initialState: (ctx: Ctx) => S;
   parseUrlParams: (p: URLSearchParams) => Partial<S>;
   serializeUrlParams: (s: S) => Record<string, string | null>;

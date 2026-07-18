@@ -292,7 +292,7 @@ function IcechunkRows({ icechunk }: { icechunk: IcechunkInfo }) {
     <>
       <KV
         label="Branch"
-        info="The Icechunk branch the viewer checked out (always the latest snapshot on that branch). The viewer reads the default branch; switching branches isn't supported here."
+        info="The Icechunk branch the viewer checked out. Pick a different branch or snapshot with the selectors in the Options panel (Data · re-reads on change)."
       >
         {icechunk.branch}
       </KV>

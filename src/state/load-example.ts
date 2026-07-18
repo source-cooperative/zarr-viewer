@@ -31,6 +31,12 @@ export function buildExampleLoadPatch(
   const patch: Record<string, string | null> = { url: request.url };
   const defaults = request.params ?? {};
 
+  // Icechunk ref selection is store-specific — never carry a stale branch/
+  // snapshot across a source switch (a ref from one repo is meaningless in
+  // another). Cleared here; an example may re-pin one via `params` below.
+  patch.branch = null;
+  patch.snapshot = null;
+
   // Reset keys: clear unless the example explicitly provides one (which
   // then gets applied below). Skip if the user already has the key.
   for (const key of PROFILE_AGNOSTIC_RESET_KEYS) {

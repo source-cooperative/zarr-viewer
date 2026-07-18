@@ -9,6 +9,7 @@ import type {
   ViewerState,
   ViewerStateUpdate,
 } from "../state/types";
+import type { IcechunkInfo, IcechunkSnapshot } from "../zarr/load-zarr";
 import { ColormapPicker, type ColormapOption } from "./ColormapPicker";
 import { RangeSlider } from "./RangeSlider";
 
@@ -55,6 +56,11 @@ type Props = {
   /** False for non-geographic (image) hosts — hides map-only controls (basemap). */
   geographic: boolean;
   autoStats: AutoStats | null;
+  /** Resolved Icechunk ref info for the current store, or null for plain Zarr
+   * (the branch/snapshot selectors only render when this is set). */
+  icechunk?: IcechunkInfo | null;
+  /** Recent snapshot history for the current branch; `null` while loading. */
+  snapshots?: IcechunkSnapshot[] | null;
 };
 
 export function ControlsPanel({
@@ -68,6 +74,8 @@ export function ControlsPanel({
   showSingleBandControls,
   geographic,
   autoStats,
+  icechunk,
+  snapshots,
 }: Props) {
   const isOpen = state.panel === "open";
   return (
@@ -94,6 +102,14 @@ export function ControlsPanel({
             title="Data · re-reads on change"
             caption="Loads new chunks from the store — may be slow for large chunks."
           >
+            {icechunk && (
+              <IcechunkSelectors
+                icechunk={icechunk}
+                snapshots={snapshots ?? null}
+                state={state}
+                update={update}
+              />
+            )}
             {profileFetchSlot}
           </ControlGroup>
 
@@ -208,6 +224,85 @@ export function ControlsPanel({
         </div>
       </details>
     </div>
+  );
+}
+
+/** Compact "YYYY-MM-DD HH:MM" (UTC) for a snapshot flush time. */
+function shortFlushDate(d: Date): string {
+  return d.toISOString().replace("T", " ").slice(0, 16);
+}
+
+function snapshotLabel(s: IcechunkSnapshot): string {
+  const short = `${s.id.slice(0, 8)}…`;
+  const msg = s.message.trim();
+  return msg
+    ? `${short} — ${msg} (${shortFlushDate(s.flushedAt)})`
+    : `${short} (${shortFlushDate(s.flushedAt)})`;
+}
+
+/** Branch + snapshot selectors for Icechunk stores. Changing either re-opens the
+ * store at that ref (chassis state → `?branch=`/`?snapshot=` → the prepare
+ * effect). Rendered in the "Data · re-reads on change" group. */
+function IcechunkSelectors({
+  icechunk,
+  snapshots,
+  state,
+  update,
+}: {
+  icechunk: IcechunkInfo;
+  snapshots: IcechunkSnapshot[] | null;
+  state: ViewerState;
+  update: (patch: ViewerStateUpdate) => void;
+}) {
+  const branch = state.branch ?? icechunk.branch;
+  const snapshot = state.snapshot ?? ""; // "" = latest (branch tip)
+  // Keep an explicitly pinned snapshot selectable even when it's older than the
+  // recent window we fetched.
+  const pinnedMissing = Boolean(
+    snapshot && snapshots && !snapshots.some((s) => s.id === snapshot),
+  );
+  return (
+    <>
+      {icechunk.branches.length > 0 && (
+        <label style={{ display: "grid", gap: 4 }}>
+          <span className="field-label">Branch</span>
+          <select
+            value={branch}
+            // Snapshot history is per-branch — reset it on a branch switch.
+            onChange={(e) => update({ branch: e.target.value, snapshot: null })}
+          >
+            {icechunk.branches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label style={{ display: "grid", gap: 4 }}>
+        <span className="field-label">Snapshot</span>
+        <select
+          value={snapshot}
+          onChange={(e) => update({ snapshot: e.target.value || null })}
+        >
+          <option value="">Latest (tip)</option>
+          {pinnedMissing && (
+            <option value={snapshot}>{snapshot.slice(0, 8)}… (pinned)</option>
+          )}
+          {snapshots === null ? (
+            <option value="__loading__" disabled>
+              Loading snapshots…
+            </option>
+          ) : (
+            snapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {snapshotLabel(s)}
+              </option>
+            ))
+          )}
+        </select>
+      </label>
+    </>
   );
 }
 

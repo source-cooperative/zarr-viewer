@@ -15,6 +15,16 @@ describe("parseViewerState", () => {
     expect(s.labelsAbove).toBe(true);
     expect(s.profileId).toBeNull();
     expect(s.minZoomOverride).toBeNull();
+    expect(s.branch).toBeNull();
+    expect(s.snapshot).toBeNull();
+  });
+
+  it("parses the Icechunk branch/snapshot ref params", () => {
+    const s = parseViewerState(
+      new URLSearchParams("branch=main&snapshot=7XC7TD4WFWZG4ZXAA4TG"),
+    );
+    expect(s.branch).toBe("main");
+    expect(s.snapshot).toBe("7XC7TD4WFWZG4ZXAA4TG");
   });
 
   it("clamps opacity into [0,1]", () => {
