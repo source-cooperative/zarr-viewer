@@ -42,6 +42,23 @@ export function ImageOrthographicControls({
           autoStats={autoStats}
           onChange={(next) => update({ rescale: next })}
         />
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={state.maskOutsideRescale}
+            onChange={(e) => update({ maskOutsideRescale: e.target.checked })}
+          />
+          <span className="field-label" style={{ textTransform: "none" }}>
+            Mask values outside range
+          </span>
+        </label>
         <label style={{ display: "grid", gap: 4 }}>
           <span
             className="field-label"

@@ -307,9 +307,18 @@ export function ImageViewer({
   const image = useMemo(() => {
     if (!current) return null;
     const [mn, mx] = resolveRescale(rmin, rmax, autoStats, current);
-    const rgba = styleToRgba(current.raw, current.winW, current.winH, mn, mx, state.gamma, lut);
+    const rgba = styleToRgba(
+      current.raw,
+      current.winW,
+      current.winH,
+      mn,
+      mx,
+      state.gamma,
+      lut,
+      state.maskOutsideRescale,
+    );
     return new ImageData(rgba, current.winW, current.winH);
-  }, [current, rmin, rmax, state.gamma, lut, autoStats]);
+  }, [current, rmin, rmax, state.gamma, lut, autoStats, state.maskOutsideRescale]);
 
   // Push the styled window to Deck as a BitmapLayer over its world extent.
   useEffect(() => {
