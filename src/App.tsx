@@ -205,7 +205,7 @@ export default function App() {
       ...profileState,
       dimIndices: {
         ...profileState.dimIndices,
-        [playable.name]: playback.index,
+        [playable.name]: Math.min(playback.index, Math.max(0, playable.size - 1)),
       },
     };
   }, [profileState, playback.playing, playback.index, playable]);
@@ -727,7 +727,7 @@ export default function App() {
             autoStats,
             onFlyTo: handleFlyTo,
             group: "instant",
-            playback,
+            playback: playable ? playback : null,
           })}
           profileStyleSlot={profile.Controls({
             ctx: profileCtx,

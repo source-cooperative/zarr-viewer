@@ -30,6 +30,7 @@ describe("ScalarGridControls (instant bucket)", () => {
     const playback = {
       playing: false,
       speed: 1,
+      index: 3,
       toggle: vi.fn(),
       cycleSpeed: vi.fn(),
       seekTo: vi.fn(),

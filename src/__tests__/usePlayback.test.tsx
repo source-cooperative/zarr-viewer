@@ -38,6 +38,7 @@ describe("usePlayback", () => {
     act(() => result.current.toggle()); // pause
     expect(result.current.playing).toBe(false);
     expect(commit).toHaveBeenLastCalledWith(1);
+    expect(commit).toHaveBeenCalledTimes(1);
   });
 
   it("seekTo pauses and commits the sought frame", () => {
@@ -48,6 +49,7 @@ describe("usePlayback", () => {
     expect(result.current.playing).toBe(false);
     expect(result.current.index).toBe(2);
     expect(commit).toHaveBeenLastCalledWith(2);
+    expect(commit).toHaveBeenCalledTimes(1);
   });
 
   it("stops playing when the playable dim changes", () => {

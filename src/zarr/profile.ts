@@ -48,6 +48,7 @@ export type ProfileControlsProps<Ctx, S> = {
   playback?: {
     playing: boolean;
     speed: number;
+    index: number;
     toggle: () => void;
     cycleSpeed: () => void;
     seekTo: (index: number) => void;
