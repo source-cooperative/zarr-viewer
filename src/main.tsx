@@ -5,12 +5,14 @@ import "./styles.css";
 import App from "./App";
 import { createLogger, getLogLevel } from "./log";
 import { installConsoleAbortFilter } from "./zarr/tile-error";
+import { installLumaLogFilter } from "./render/luma-log-filter";
 import { installFloat16Polyfill } from "./zarr/float16-polyfill";
 import { installGribberishCodec } from "./zarr/install-gribberish-codec";
 
 installFloat16Polyfill();
 installGribberishCodec();
 installConsoleAbortFilter();
+installLumaLogFilter();
 createLogger("app").info(
   `starting (log level "${getLogLevel()}" — set ?log=debug for more)`,
 );

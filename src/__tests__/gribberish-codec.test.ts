@@ -22,7 +22,10 @@ test("zarr.get decodes an HRRR temperature_2m plane via the gribberish pipeline"
   const arr = await zarr.open.v3(opened.group.resolve("temperature_2m"), {
     kind: "array",
   });
-  expect(arr.shape).toEqual([11706, 49, 1059, 1799]);
+  // init_time grows as new forecasts are appended (6-hourly), so only assert
+  // the stable trailing dims (lead_time, y, x).
+  expect(arr.shape.slice(1)).toEqual([49, 1059, 1799]);
+  expect(arr.shape[0]).toBeGreaterThan(0);
   expect(arr.dtype).toBe("float64");
 
   // First init_time / lead_time, full CONUS plane -> [1059, 1799].
