@@ -76,6 +76,7 @@ export const imageOrthographicProfile: ZarrProfile<
       colormap: "gray",
       gamma: 1,
       rescale: null, // auto (percentile) — see computeAutoStats
+      maskOutsideRescale: false,
     };
   },
 
@@ -105,6 +106,7 @@ export const imageOrthographicProfile: ZarrProfile<
     ) {
       out.rescale = [Number(rmin), Number(rmax)];
     }
+    if (p.get("mask") === "1") out.maskOutsideRescale = true;
     return out;
   },
 
@@ -116,6 +118,7 @@ export const imageOrthographicProfile: ZarrProfile<
       // null clears the param (back to auto).
       rmin: s.rescale ? String(s.rescale[0]) : null,
       rmax: s.rescale ? String(s.rescale[1]) : null,
+      mask: s.maskOutsideRescale ? "1" : null,
     };
     for (const [name, idx] of Object.entries(s.indices)) {
       out[`dim.${name}`] = String(idx);
