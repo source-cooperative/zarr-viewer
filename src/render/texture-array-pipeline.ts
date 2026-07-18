@@ -18,7 +18,7 @@ import { tileLoadEnd, tileLoadStart } from "./tile-activity";
 import { registerSampleTile } from "./sample-source";
 
 const log = createLogger("tiles");
-import { Gamma, LogStretch, SqrtStretch } from "./shader-modules";
+import { Gamma, LogStretch, MaskOutsideRange, SqrtStretch } from "./shader-modules";
 import {
   percentileFromHistogram,
   type AutoStats,
@@ -366,6 +366,8 @@ export type TextureArrayRenderState = {
   rescale: [number, number] | null;
   gamma: number;
   stretch: Stretch;
+  /** When true, discard pixels outside the resolved rescale window. */
+  maskOutsideRescale: boolean;
 };
 
 function safeRange([lo, hi]: [number, number]): [number, number] {
@@ -408,6 +410,12 @@ export function buildTextureArrayRenderTile(
       },
     ];
     if (rescale) {
+      if (state.maskOutsideRescale) {
+        pipeline.push({
+          module: MaskOutsideRange,
+          props: { maskMin: rescale[0], maskMax: rescale[1] },
+        });
+      }
       pipeline.push({
         module: LinearRescale,
         props: { rescaleMin: rescale[0], rescaleMax: rescale[1] },
