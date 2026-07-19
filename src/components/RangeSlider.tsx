@@ -85,12 +85,6 @@ export function RangeSlider({ min, max, value, onCommit }: Props) {
     setDraft([vlo, vhi]);
   }, [vlo, vhi]);
 
-  // Commit immediately on every draft change (real-time map updates).
-  useEffect(() => {
-    if (draft[0] === vlo && draft[1] === vhi) return;
-    onCommit(draft);
-  }, [draft, vlo, vhi, onCommit]);
-
   const [lo, hi] = draft;
   // Widen the track to include the handles when an edit pushes one past the
   // passed bounds (the requirement: typing beyond the slider extends it).
@@ -101,8 +95,21 @@ export function RangeSlider({ min, max, value, onCommit }: Props) {
   const hiPct = ((hi - trackMin) / span) * 100;
   const mid = (trackMin + trackMax) / 2;
 
-  const setLo = (n: number) => setDraft([Math.min(n, hi), hi]);
-  const setHi = (n: number) => setDraft([lo, Math.max(n, lo)]);
+  // Commit only on a real user edit — updating the draft AND emitting in the
+  // same handler. Committing from an effect keyed on `value` instead would
+  // also fire when `value` changes from outside (e.g. a rescale reset lands
+  // the autoStats fallback), pushing the stale draft back and ping-ponging
+  // `value` into an infinite update loop (issue #57).
+  const setLo = (n: number) => {
+    const next: [number, number] = [Math.min(n, hi), hi];
+    setDraft(next);
+    onCommit(next);
+  };
+  const setHi = (n: number) => {
+    const next: [number, number] = [lo, Math.max(n, lo)];
+    setDraft(next);
+    onCommit(next);
+  };
 
   return (
     <div style={{ display: "grid", gap: 4 }}>
