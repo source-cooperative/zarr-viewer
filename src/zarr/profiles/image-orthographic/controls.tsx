@@ -42,40 +42,49 @@ export function ImageOrthographicControls({
           autoStats={autoStats}
           onChange={(next) => update({ rescale: next })}
         />
-        <label
+        <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            cursor: "pointer",
+            justifyContent: "space-between",
+            gap: 12,
           }}
         >
-          <input
-            type="checkbox"
-            checked={state.maskBelow}
-            onChange={(e) => update({ maskBelow: e.target.checked })}
-          />
-          <span className="field-label" style={{ textTransform: "none" }}>
-            Mask below range
-          </span>
-        </label>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={state.maskAbove}
-            onChange={(e) => update({ maskAbove: e.target.checked })}
-          />
-          <span className="field-label" style={{ textTransform: "none" }}>
-            Mask above range
-          </span>
-        </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={state.maskBelow}
+              onChange={(e) => update({ maskBelow: e.target.checked })}
+            />
+            <span className="field-label" style={{ textTransform: "none" }}>
+              Mask below range
+            </span>
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+            }}
+          >
+            <span className="field-label" style={{ textTransform: "none" }}>
+              Mask above range
+            </span>
+            <input
+              type="checkbox"
+              checked={state.maskAbove}
+              onChange={(e) => update({ maskAbove: e.target.checked })}
+            />
+          </label>
+        </div>
         <label style={{ display: "grid", gap: 4 }}>
           <span
             className="field-label"
