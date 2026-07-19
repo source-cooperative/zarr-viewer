@@ -497,10 +497,11 @@ export default function App() {
     return profile.getStructure(profileCtx, profileState);
   }, [profile, profileCtx, profileState]);
 
-  // Fetch the primary variable's codec / sharding info for the Structure
-  // panel. One small HTTP request per (url, variable) change.
+  // Read the primary variable's codec / sharding info for the Structure panel
+  // from the opened store (content-addressed; Icechunk-safe — see issue #51).
   useEffect(() => {
-    if (!state.url || !structureSummary) {
+    const store = profileCtx?.group.store ?? null;
+    if (!store || !structureSummary) {
       setCodecSummary(null);
       return;
     }
@@ -508,18 +509,14 @@ export default function App() {
     const ctrl = new AbortController();
     setCodecSummary(null);
     (async () => {
-      const summary = await fetchCodecSummary(
-        state.url!,
-        primary.path,
-        ctrl.signal,
-      );
+      const summary = await fetchCodecSummary(store, primary.path, ctrl.signal);
       if (!ctrl.signal.aborted) setCodecSummary(summary);
     })();
     return () => ctrl.abort();
-    // structureSummary.variables[0].path is captured via the JSON key
-    // below — primitives only, stable across same-value renders.
+    // Keyed on the store (via profileCtx) + primary path; both stable across
+    // same-value renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.url, structureSummary?.variables[0]?.path]);
+  }, [profileCtx, structureSummary?.variables[0]?.path]);
 
   const layer = useMemo(() => {
     // Suppress layer construction while a flyTo is in flight so deck.gl

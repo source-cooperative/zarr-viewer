@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type * as zarr from "zarrita";
 import { detectConventions, fetchCodecSummary } from "../zarr/structure";
 
 const cf = (v: string) =>
@@ -178,33 +179,31 @@ describe("detectConventions", () => {
   });
 });
 
-const originalFetch = globalThis.fetch;
-let fetchMock: ReturnType<typeof vi.fn>;
+const sig = () => new AbortController().signal;
 
-beforeEach(() => {
-  fetchMock = vi.fn();
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
+/** A minimal `zarr.Readable` whose `get()` serves a key → JSON-body map as
+ * UTF-8 bytes (unknown keys resolve `undefined`, i.e. a store miss). Records
+ * the keys it was asked for. This mirrors how Icechunk/plain stores expose raw
+ * metadata via `store.get()` rather than a URL fetch (issue #51). */
+function fakeStore(entries: Record<string, unknown>): {
+  store: zarr.Readable;
+  keys: string[];
+} {
+  const keys: string[] = [];
+  const store = {
+    get: async (key: string) => {
+      keys.push(key);
+      if (!(key in entries)) return undefined;
+      return new TextEncoder().encode(JSON.stringify(entries[key]));
+    },
+  } as unknown as zarr.Readable;
+  return { store, keys };
 }
 
-function notFound(): Response {
-  return new Response(null, { status: 404 });
-}
-
-describe("fetchCodecSummary (v3 zarr.json)", () => {
+describe("fetchCodecSummary (store reads)", () => {
   it("recognizes a sharded array and extracts sub-chunk shape + inner compressor", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
+    const { store } = fakeStore({
+      "/temperature_2m/zarr.json": {
         node_type: "array",
         shape: [789, 85, 51, 721, 1440],
         codecs: [
@@ -216,35 +215,25 @@ describe("fetchCodecSummary (v3 zarr.json)", () => {
                 { name: "bytes", configuration: { endian: "little" } },
                 {
                   name: "blosc",
-                  configuration: {
-                    cname: "zstd",
-                    clevel: 3,
-                    shuffle: "shuffle",
-                  },
+                  configuration: { cname: "zstd", clevel: 3, shuffle: "shuffle" },
                 },
               ],
             },
           },
         ],
-      }),
-    );
+      },
+    });
 
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "temperature_2m",
-      new AbortController().signal,
-    );
+    const summary = await fetchCodecSummary(store, "temperature_2m", sig());
     expect(summary).not.toBeNull();
     expect(summary!.sharded).toBe(true);
     expect(summary!.subChunkShape).toEqual([1, 85, 51, 32, 32]);
-    expect(summary!.compressor).toBe(
-      "blosc(zstd, clevel=3, shuffle=shuffle)",
-    );
+    expect(summary!.compressor).toBe("blosc(zstd, clevel=3, shuffle=shuffle)");
   });
 
   it("recognizes an unsharded array and skips the structural `bytes` codec", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
+    const { store } = fakeStore({
+      "/PM25_latest/zarr.json": {
         node_type: "array",
         shape: [171, 381, 1081],
         codecs: [
@@ -254,98 +243,65 @@ describe("fetchCodecSummary (v3 zarr.json)", () => {
             configuration: { cname: "zstd", clevel: 5, shuffle: "shuffle" },
           },
         ],
-      }),
-    );
+      },
+    });
 
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "PM25_latest",
-      new AbortController().signal,
-    );
+    const summary = await fetchCodecSummary(store, "PM25_latest", sig());
     expect(summary).not.toBeNull();
     expect(summary!.sharded).toBe(false);
     expect(summary!.subChunkShape).toBeNull();
-    expect(summary!.compressor).toBe(
-      "blosc(zstd, clevel=5, shuffle=shuffle)",
-    );
+    expect(summary!.compressor).toBe("blosc(zstd, clevel=5, shuffle=shuffle)");
   });
 
   it("reports `raw` when only the `bytes` codec is present", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({
+    const { store } = fakeStore({
+      "/x/zarr.json": {
         node_type: "array",
         codecs: [{ name: "bytes", configuration: { endian: "little" } }],
-      }),
-    );
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "x",
-      new AbortController().signal,
-    );
+      },
+    });
+    const summary = await fetchCodecSummary(store, "x", sig());
     expect(summary).not.toBeNull();
     expect(summary!.compressor).toBe("raw");
   });
 
   it("falls back to v2 `.zarray` when v3 zarr.json is missing", async () => {
-    fetchMock
-      .mockResolvedValueOnce(notFound())
-      .mockResolvedValueOnce(
-        jsonResponse({
-          shape: [10, 10],
-          chunks: [5, 5],
-          dtype: "<f4",
-          compressor: {
-            id: "blosc",
-            cname: "zstd",
-            clevel: 3,
-            shuffle: 1,
-          },
-        }),
-      );
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "field",
-      new AbortController().signal,
-    );
+    const { store, keys } = fakeStore({
+      "/field/.zarray": {
+        shape: [10, 10],
+        chunks: [5, 5],
+        dtype: "<f4",
+        compressor: { id: "blosc", cname: "zstd", clevel: 3, shuffle: 1 },
+      },
+    });
+    const summary = await fetchCodecSummary(store, "field", sig());
     expect(summary).not.toBeNull();
     expect(summary!.sharded).toBe(false);
     expect(summary!.compressor).toContain("blosc");
     expect(summary!.compressor).toContain("zstd");
+    // Tried v3 first, then fell back to v2.
+    expect(keys).toEqual(["/field/zarr.json", "/field/.zarray"]);
   });
 
-  it("returns null when both v3 and v2 fetches fail", async () => {
-    fetchMock.mockResolvedValueOnce(notFound()).mockResolvedValueOnce(notFound());
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "missing",
-      new AbortController().signal,
-    );
-    expect(summary).toBeNull();
+  it("returns null when neither v3 nor v2 metadata is present (no 404s)", async () => {
+    const { store } = fakeStore({});
+    expect(await fetchCodecSummary(store, "missing", sig())).toBeNull();
   });
 
-  it("survives non-JSON / network errors gracefully", async () => {
-    fetchMock.mockRejectedValueOnce(new Error("net error"));
-    fetchMock.mockRejectedValueOnce(new Error("net error"));
-    const summary = await fetchCodecSummary(
-      "https://example.com/data.zarr",
-      "x",
-      new AbortController().signal,
-    );
-    expect(summary).toBeNull();
+  it("survives store read / parse errors gracefully", async () => {
+    const store = {
+      get: async () => {
+        throw new Error("read error");
+      },
+    } as unknown as zarr.Readable;
+    expect(await fetchCodecSummary(store, "x", sig())).toBeNull();
   });
 
-  it("trims trailing slashes in the URL and leading slashes in the path", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ node_type: "array", codecs: [] }),
-    );
-    await fetchCodecSummary(
-      "https://example.com/data.zarr/",
-      "/embeddings",
-      new AbortController().signal,
-    );
-    const calledUrl = fetchMock.mock.calls[0]?.[0];
-    expect(calledUrl).toBe(
-      "https://example.com/data.zarr/embeddings/zarr.json",
-    );
+  it("reads the v3 key first, trimming leading/trailing slashes in the path", async () => {
+    const { store, keys } = fakeStore({
+      "/embeddings/zarr.json": { node_type: "array", codecs: [] },
+    });
+    await fetchCodecSummary(store, "/embeddings/", sig());
+    expect(keys[0]).toBe("/embeddings/zarr.json");
   });
 });
