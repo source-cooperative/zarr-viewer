@@ -14,6 +14,9 @@ import {
   FilterNaN,
   Gamma,
   LogStretch,
+  MASK_NO_LOWER,
+  MASK_NO_UPPER,
+  MaskOutsideRange,
   PerBandLinearRescale,
   SqrtStretch,
 } from "./shader-modules";
@@ -53,6 +56,10 @@ export type SingleBandRenderState = {
   stretch: Stretch;
   /** Explicit nodata override; `null` means use the tile's own nodata; `"off"` disables. */
   nodata: number | "off" | null;
+  /** When true, discard pixels below the resolved rescale window's low end. */
+  maskBelow: boolean;
+  /** When true, discard pixels above the resolved rescale window's high end. */
+  maskAbove: boolean;
 };
 
 function effectiveNodata(
@@ -145,6 +152,17 @@ export function buildSingleBandRenderTile(
     const rescale = resolveRescale(state, autoStats);
     if (rescale) {
       const [lo, hi] = rescale;
+      if (state.maskBelow || state.maskAbove) {
+        const maskLo = state.maskBelow ? lo : MASK_NO_LOWER;
+        const maskHi = state.maskAbove ? hi : MASK_NO_UPPER;
+        pipeline.push({
+          module: MaskOutsideRange,
+          props: {
+            maskMin: maskLo / data.sampleScale,
+            maskMax: maskHi / data.sampleScale,
+          },
+        });
+      }
       pipeline.push({
         module: PerBandLinearRescale,
         props: {

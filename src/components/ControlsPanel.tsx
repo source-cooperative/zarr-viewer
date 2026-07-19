@@ -146,6 +146,55 @@ export function ControlsPanel({
                   update={update}
                   autoStats={autoStats}
                 />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={state.maskBelow}
+                      onChange={(e) => update({ maskBelow: e.target.checked })}
+                    />
+                    <span
+                      className="field-label"
+                      style={{ textTransform: "none" }}
+                    >
+                      Mask below
+                    </span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span
+                      className="field-label"
+                      style={{ textTransform: "none" }}
+                    >
+                      Mask above
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={state.maskAbove}
+                      onChange={(e) => update({ maskAbove: e.target.checked })}
+                    />
+                  </label>
+                </div>
                 <label style={{ display: "grid", gap: 4 }}>
                   <span className="field-label">Stretch</span>
                   <select

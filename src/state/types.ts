@@ -20,6 +20,13 @@ export type ViewerState = {
   stretch: Stretch;
   colormap: string | null;
   rescale: [number, number] | null;
+  /** When true, discard (make transparent) pixels whose value is BELOW the
+   * resolved rescale window's low end instead of clamping them. Display-only.
+   * Applies to the GPU (map) render paths; the image profile has its own flags. */
+  maskBelow: boolean;
+  /** As {@link maskBelow}, but for pixels ABOVE the window's high end. The two
+   * are independent: both on = mask everything outside the window. */
+  maskAbove: boolean;
   labelsAbove: boolean;
   /** Explicit profile id override (`?p=`). Inferred from `url` when null. */
   profileId: string | null;
