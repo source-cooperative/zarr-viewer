@@ -42,6 +42,22 @@ const parseMinZoomOverride = (raw: string | null): number | null => {
   return Math.max(0, n);
 };
 
+/** Default intro fly-in duration (seconds) when `?intro=1` requests the feature
+ * without a specific duration. */
+export const DEFAULT_INTRO_SECONDS = 2.5;
+
+/** Parse `?intro=<seconds>` into a fly-in duration in seconds, or `null` when
+ * off. `intro=1` is the "on" token → the default duration (matching the app's
+ * `=1` boolean-param convention); any other positive number is that many
+ * seconds, clamped to a sane range; non-positive / non-numeric / absent → off. */
+const parseIntro = (raw: string | null): number | null => {
+  if (raw === null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n === 1) return DEFAULT_INTRO_SECONDS;
+  return Math.min(20, Math.max(0.3, n));
+};
+
 /** Parse the three view URL params (`lng`, `lat`, `zoom`) into a tuple.
  * Returns null unless all three are present, finite, and the latitude is
  * inside [-90, 90]. The three values are only meaningful together, so a
@@ -100,6 +116,7 @@ export function parseViewerState(p: URLSearchParams): ViewerState {
     snapshot: p.get("snapshot"),
     view: parseView(p.get("lng"), p.get("lat"), p.get("zoom")),
     minZoomOverride: parseMinZoomOverride(p.get("min_zoom")),
+    intro: parseIntro(p.get("intro")),
   };
 }
 
@@ -180,6 +197,10 @@ function applyChassisPatch(p: URLSearchParams, patch: ViewerStateUpdate): void {
   if (patch.minZoomOverride !== undefined) {
     if (patch.minZoomOverride === null) p.delete("min_zoom");
     else p.set("min_zoom", String(patch.minZoomOverride));
+  }
+  if (patch.intro !== undefined) {
+    if (patch.intro === null) p.delete("intro");
+    else p.set("intro", String(patch.intro));
   }
 }
 

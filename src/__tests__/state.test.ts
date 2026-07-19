@@ -19,6 +19,23 @@ describe("parseViewerState", () => {
     expect(s.snapshot).toBeNull();
     expect(s.maskBelow).toBe(false);
     expect(s.maskAbove).toBe(false);
+    expect(s.intro).toBeNull();
+  });
+
+  it("parses ?intro into a fly-in duration in seconds", () => {
+    // "1" is the on-token → default duration.
+    expect(parseViewerState(new URLSearchParams("intro=1")).intro).toBe(2.5);
+    // Any other positive number → that many seconds.
+    expect(parseViewerState(new URLSearchParams("intro=4")).intro).toBe(4);
+    expect(parseViewerState(new URLSearchParams("intro=2.5")).intro).toBe(2.5);
+    // Clamped to a sane range.
+    expect(parseViewerState(new URLSearchParams("intro=99")).intro).toBe(20);
+    expect(parseViewerState(new URLSearchParams("intro=0.05")).intro).toBe(0.3);
+    // Off: absent, zero, negative, non-numeric.
+    expect(parseViewerState(new URLSearchParams()).intro).toBeNull();
+    expect(parseViewerState(new URLSearchParams("intro=0")).intro).toBeNull();
+    expect(parseViewerState(new URLSearchParams("intro=-2")).intro).toBeNull();
+    expect(parseViewerState(new URLSearchParams("intro=abc")).intro).toBeNull();
   });
 
   it("parses the mask_below / mask_above flags independently", () => {

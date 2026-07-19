@@ -100,6 +100,11 @@ export type ZarrProfile<
   initialView?: (ctx: Ctx, state: S) =>
     | { longitude: number; latitude: number; zoom: number }
     | null;
+  /** The dataset's true geographic extent `[west,south,east,north]` (lng/lat),
+   * or null when it has none (global composites). Used only by the optional
+   * intro fly-in (`?intro=`, issue #42) — distinct from `initialBounds`, which
+   * stays the world-sized default opening camera. */
+  dataBounds?: (ctx: Ctx, state: S) => [number, number, number, number] | null;
   /** Lowest map zoom at which this profile's layer renders tiles (matches
    * the layer's `minZoom`). When set, the chassis shows a "zoom in" hint
    * below it. Omit for profiles that render at every zoom. */

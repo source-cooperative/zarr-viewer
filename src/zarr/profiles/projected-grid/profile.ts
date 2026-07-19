@@ -12,6 +12,7 @@
  * `ProjectedGridStoreError` handoff from the scalar-grid profile.
  */
 import type { ZarrProfile } from "../../profile";
+import { projectedBounds } from "../../data-bounds";
 import { bytesPerElement } from "../../chunk-size";
 import { assertCodecsSupported } from "../../unsupported-codec";
 import { openV3Group } from "../../load-zarr";
@@ -161,6 +162,23 @@ export const projectedGridProfile: ZarrProfile<
   // than report values from the wrong location. (A future version could proj4
   // the cursor lng/lat into the projected grid.)
   sampleValue: () => null,
+
+  // Reproject the projected (metre) extent to a lng/lat bbox for the intro
+  // fly-in — overrides scalar-grid's geographic version.
+  dataBounds: (ctx) => {
+    const attrs = ctx.spatialAttrs as
+      | {
+          "spatial:transform"?: number[];
+          "spatial:shape"?: number[];
+          "proj:wkt2"?: string;
+        }
+      | undefined;
+    const transform = attrs?.["spatial:transform"];
+    const shape = attrs?.["spatial:shape"];
+    const wkt2 = attrs?.["proj:wkt2"];
+    if (!transform || !shape || !wkt2) return null;
+    return projectedBounds(transform, shape, wkt2);
+  },
 
   getStructure: (ctx, state: ScalarGridState) => ({
     zarrVersion: "v3",

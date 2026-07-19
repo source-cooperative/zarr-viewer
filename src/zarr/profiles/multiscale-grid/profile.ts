@@ -10,6 +10,7 @@ import { bytesPerElement } from "../../chunk-size";
 import { buildGeoZarrMetadata, parseMultiscaleDatasets } from "../../multiscale";
 import { openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
+import { geographicBounds, mercatorBounds } from "../../data-bounds";
 import { deriveMinZoom } from "../scalar-grid/profile";
 import { makeScalarGridTileLoader } from "../scalar-grid/tile-loader";
 import { MultiscaleGridControls } from "./controls";
@@ -193,6 +194,21 @@ export const multiscaleGridProfile: ZarrProfile<
   parseUrlParams: () => ({}),
   serializeUrlParams: () => ({}),
   initialBounds: () => [-180, -85.0511, 180, 85.0511],
+
+  // Data extent (any level covers the same area) for the intro fly-in. The
+  // layout transform is EPSG:3857 metres for the common case; a geographic CRS
+  // stores degrees.
+  dataBounds: (ctx) => {
+    const layout = ctx.metadata.multiscales.layout[0];
+    if (!layout) return null;
+    const transform = layout["spatial:transform"];
+    const shape = layout["spatial:shape"];
+    const geographic = ctx.crsCode != null && /4326|4269|4258/.test(ctx.crsCode);
+    return geographic
+      ? geographicBounds(transform, shape)
+      : mercatorBounds(transform, shape);
+  },
+
   Controls: MultiscaleGridControls,
 
   resolveNode: async (ctx) => ctx.group,

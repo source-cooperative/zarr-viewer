@@ -88,6 +88,9 @@ function DeckGLOverlay(
 
 export default function App() {
   const mapRef = useRef<MapRef>(null);
+  // Store URL the intro fly-in has already played for, so it runs once per load
+  // (a variable switch doesn't replay it). See the intro effect below (#42).
+  const introRanForUrl = useRef<string | null>(null);
   const { state, update, params, updateParams } = useViewerState();
   const prefersDark = usePrefersDark();
   const [device, setDevice] = useState<Device | null>(null);
@@ -297,6 +300,8 @@ export default function App() {
         // Skip the profile's auto-fit when the URL has explicit view
         // params — the user's view wins.
         if (state.view) return;
+        // When the intro fly-in is active it owns the opening camera.
+        if (state.intro != null) return;
         const bounds = profile.initialBounds?.(ctx);
         if (bounds) {
           mapRef.current?.fitBounds(
@@ -368,6 +373,8 @@ export default function App() {
   useEffect(() => {
     if (!profile || !profileCtx || !profileState) return;
     if (state.view) return;
+    // When the intro fly-in is active it owns the opening camera.
+    if (state.intro != null) return;
     const view = profile.initialView?.(profileCtx, profileState);
     if (view) {
       mapRef.current?.flyTo({
@@ -380,6 +387,47 @@ export default function App() {
     // is read for gating but excluded — see above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id, profileCtx]);
+
+  // Optional intro fly-in (`?intro=<seconds>`, issue #42): once per store load,
+  // and only when no explicit `?lng/lat/zoom` view is set, animate from the
+  // world view to the dataset's extent. Extent profiles supply a lng/lat bbox
+  // via `dataBounds` (→ fitBounds); band-composite falls back to its location
+  // preset (`initialView` → flyTo). No target → graceful no-op. `isAnimatingView`
+  // suppresses tile loads for the intermediate viewports; App.onMoveEnd clears
+  // it on the programmatic moveend. Programmatic moves never write the URL.
+  useEffect(() => {
+    if (state.intro == null || state.view) return;
+    if (!profile || !profileCtx || !profileState) return;
+    if (introRanForUrl.current === state.url) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const durationMs = state.intro * 1000;
+    const bounds = profile.dataBounds?.(profileCtx, profileState) ?? null;
+    if (bounds) {
+      introRanForUrl.current = state.url;
+      setIsAnimatingView(true);
+      map.fitBounds(
+        [
+          [bounds[0], bounds[1]],
+          [bounds[2], bounds[3]],
+        ],
+        { padding: 40, duration: durationMs },
+      );
+      return;
+    }
+    const view = profile.initialView?.(profileCtx, profileState) ?? null;
+    if (view) {
+      introRanForUrl.current = state.url;
+      setIsAnimatingView(true);
+      map.flyTo({
+        center: [view.longitude, view.latitude],
+        zoom: view.zoom,
+        duration: durationMs,
+      });
+    }
+    // state.view gates only; introRanForUrl guards single-fire per store.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.intro, state.url, profile?.id, profileCtx, profileState]);
 
   // Stable string keys for the profile-provided dep lists. Spreading the
   // arrays directly into a `useEffect` dep array would change the array
