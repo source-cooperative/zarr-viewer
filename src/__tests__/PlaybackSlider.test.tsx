@@ -34,6 +34,18 @@ describe("PlaybackSlider", () => {
     expect(props.onToggle).toHaveBeenCalledOnce();
   });
 
+  it("does not nest its controls in a <label> (avoids click double-firing in webviews)", () => {
+    // A <label> wrapping its own associated control (the first labelable
+    // descendant — here the Play button) makes some embedded Chromium webviews
+    // (e.g. Cursor's preview) fire the button's click twice via the label's
+    // click-forwarding. For the Play toggle that nets to a no-op ("nothing
+    // happens"). The transport must be a plain grouping element, not a label.
+    setup();
+    expect(screen.getByRole("button", { name: "Play" }).closest("label")).toBeNull();
+    expect(screen.getByRole("button", { name: /speed/i }).closest("label")).toBeNull();
+    expect(screen.getByRole("slider").closest("label")).toBeNull();
+  });
+
   it("shows a Pause label while playing", () => {
     setup({ playing: true });
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();

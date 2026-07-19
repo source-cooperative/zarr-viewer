@@ -52,8 +52,11 @@ export function DebouncedSlider({
   }, [draft, value, onCommit]);
 
   const display = formatValue ? formatValue(draft) : String(draft);
+  // Group, not a <label>: a <label> would associate with StepperRange's first
+  // button and double-fire its clicks in some embedded webviews (see
+  // PlaybackSlider for the full explanation).
   return (
-    <label style={tintLabelStyle(tint)}>
+    <div role="group" aria-label={label} style={tintLabelStyle(tint)}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}
@@ -64,6 +67,6 @@ export function DebouncedSlider({
         </span>
       </span>
       <StepperRange value={draft} min={min} max={max} onChange={setDraft} />
-    </label>
+    </div>
   );
 }

@@ -93,8 +93,11 @@ function BandSlider({
   onChange: (next: number) => void;
 }) {
   const labelText = labels[value] ?? `band ${value}`;
+  // Group, not a <label>: a <label> would associate with StepperRange's first
+  // button and double-fire its clicks in some embedded webviews (see
+  // PlaybackSlider for the full explanation).
   return (
-    <label style={{ display: "grid", gap: 2 }}>
+    <div role="group" aria-label={label} style={{ display: "grid", gap: 2 }}>
       <span
         className="field-label"
         style={{ display: "flex", justifyContent: "space-between" }}
@@ -110,6 +113,6 @@ function BandSlider({
         max={Math.max(0, maxBand)}
         onChange={onChange}
       />
-    </label>
+    </div>
   );
 }
