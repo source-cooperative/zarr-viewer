@@ -26,6 +26,7 @@ import { OmeZarrStoreError, isOmeZarrAttrs } from "../image-orthographic/ome";
 
 const log = createLogger("profile");
 import type { ZarrProfile } from "../../profile";
+import { geographicBounds } from "../../data-bounds";
 import { buildDimLabel } from "./cf-coords";
 import { ScalarGridControls } from "./controls";
 import { makeScalarGridTileLoader } from "./tile-loader";
@@ -749,6 +750,14 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
   },
 
   initialBounds: () => [-180, -90, 180, 90],
+
+  // Geographic (lat/lon) data extent for the optional intro fly-in. Projected
+  // grids carry `proj:wkt2` instead of `proj:code` and override this.
+  dataBounds: (ctx) => {
+    const attrs = ctx.spatialAttrs as ScalarGridSpatialAttrs | undefined;
+    if (!attrs || attrs["proj:code"] !== "EPSG:4326") return null;
+    return geographicBounds(attrs["spatial:transform"], attrs["spatial:shape"]);
+  },
 
   Controls: ScalarGridControls,
 

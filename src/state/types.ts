@@ -44,6 +44,11 @@ export type ViewerState = {
    * both the zoom-in hint and the layer's tile-loading floor — lets a shared
    * link force tiles to load below the auto-derived (fetch-budget) floor. */
   minZoomOverride: number | null;
+  /** Intro fly-in duration in seconds (`?intro=<seconds>`), or `null` when
+   * disabled (the default). When set — and no explicit `view` is present — the
+   * map animates from the world view to the dataset extent on first load.
+   * `?intro=1` means "on at the default duration". Display-only. */
+  intro: number | null;
 };
 
 export type ViewerStateUpdate = Partial<ViewerState>;
