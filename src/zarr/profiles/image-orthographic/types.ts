@@ -82,7 +82,9 @@ export type ImageOrthographicState = {
    * percentile of the data), which is the default and avoids the "everything
    * dark" look when a store's omero window is set wide. */
   rescale: [number, number] | null;
-  /** When true, discard (make transparent) pixels outside the rescale window
-   * instead of clamping them. Default false. */
-  maskOutsideRescale: boolean;
+  /** When true, discard (make transparent) pixels below the rescale window's
+   * low end instead of clamping them. Default false. */
+  maskBelow: boolean;
+  /** As {@link maskBelow}, but for pixels above the window's high end. */
+  maskAbove: boolean;
 };

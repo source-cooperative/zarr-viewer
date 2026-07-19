@@ -4,6 +4,16 @@
 **Date:** 2026-07-18
 **Status:** Approved design
 
+> **Amendment (2026-07-18):** the single "mask outside range" toggle was split
+> into **two independent controls** — *mask below* and *mask above* the window —
+> per follow-up feedback. The single boolean `maskOutsideRescale` became two
+> booleans `maskBelow` / `maskAbove` (chassis `ViewerState` and image-profile
+> state); the URL key `mask` became `mask_below` / `mask_above`; and the one
+> GPU shader module is reused for both by passing a sentinel bound
+> (`MASK_NO_LOWER` / `MASK_NO_UPPER`) for whichever side is disabled. Ticking
+> both reproduces the original "outside" behavior described below. Everything
+> else in this doc still holds; read `maskOutsideRescale` as "either flag".
+
 ## Summary
 
 Add an optional mode that makes pixels whose data value falls **outside** the

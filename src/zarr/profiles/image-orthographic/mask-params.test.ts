@@ -8,36 +8,46 @@ const baseState: ImageOrthographicState = {
   colormap: "gray",
   gamma: 1,
   rescale: null,
-  maskOutsideRescale: false,
+  maskBelow: false,
+  maskAbove: false,
 };
 
-describe("image-orthographic mask URL param", () => {
-  it("parses mask=1 into maskOutsideRescale: true", () => {
-    expect(
-      imageOrthographicProfile.parseUrlParams(new URLSearchParams("mask=1"))
-        .maskOutsideRescale,
-    ).toBe(true);
+describe("image-orthographic mask URL params", () => {
+  it("parses mask_below / mask_above independently", () => {
+    const below = imageOrthographicProfile.parseUrlParams(
+      new URLSearchParams("mask_below=1"),
+    );
+    expect(below.maskBelow).toBe(true);
+    expect(below.maskAbove).toBeUndefined();
+
+    const above = imageOrthographicProfile.parseUrlParams(
+      new URLSearchParams("mask_above=1"),
+    );
+    expect(above.maskAbove).toBe(true);
+    expect(above.maskBelow).toBeUndefined();
   });
 
-  it("leaves maskOutsideRescale unset when the param is absent", () => {
-    expect(
-      imageOrthographicProfile.parseUrlParams(new URLSearchParams())
-        .maskOutsideRescale,
-    ).toBeUndefined();
+  it("leaves both unset when the params are absent", () => {
+    const out = imageOrthographicProfile.parseUrlParams(new URLSearchParams());
+    expect(out.maskBelow).toBeUndefined();
+    expect(out.maskAbove).toBeUndefined();
   });
 
-  it("serializes mask=1 when on and clears it when off", () => {
-    expect(
-      imageOrthographicProfile.serializeUrlParams({
-        ...baseState,
-        maskOutsideRescale: true,
-      }).mask,
-    ).toBe("1");
-    expect(
-      imageOrthographicProfile.serializeUrlParams({
-        ...baseState,
-        maskOutsideRescale: false,
-      }).mask,
-    ).toBeNull();
+  it("serializes each flag to its own param, clearing when off", () => {
+    const on = imageOrthographicProfile.serializeUrlParams({
+      ...baseState,
+      maskBelow: true,
+      maskAbove: false,
+    });
+    expect(on.mask_below).toBe("1");
+    expect(on.mask_above).toBeNull();
+
+    const off = imageOrthographicProfile.serializeUrlParams({
+      ...baseState,
+      maskBelow: false,
+      maskAbove: true,
+    });
+    expect(off.mask_below).toBeNull();
+    expect(off.mask_above).toBe("1");
   });
 });

@@ -52,11 +52,28 @@ export function ImageOrthographicControls({
         >
           <input
             type="checkbox"
-            checked={state.maskOutsideRescale}
-            onChange={(e) => update({ maskOutsideRescale: e.target.checked })}
+            checked={state.maskBelow}
+            onChange={(e) => update({ maskBelow: e.target.checked })}
           />
           <span className="field-label" style={{ textTransform: "none" }}>
-            Mask values outside range
+            Mask below range
+          </span>
+        </label>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={state.maskAbove}
+            onChange={(e) => update({ maskAbove: e.target.checked })}
+          />
+          <span className="field-label" style={{ textTransform: "none" }}>
+            Mask above range
           </span>
         </label>
         <label style={{ display: "grid", gap: 4 }}>

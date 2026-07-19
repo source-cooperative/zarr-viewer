@@ -5,7 +5,9 @@
  * - `min`/`max`: the display window; values map linearly to [0,1] and clamp.
  * - `gamma`: >1 brightens, <1 darkens, 1 = linear (applied as t^(1/gamma)).
  * - `lut`: 256-entry RGBA colormap (length 1024). When omitted, the normalized
- *   intensity is written as opaque grayscale. */
+ *   intensity is written as opaque grayscale.
+ * - `maskBelow`/`maskAbove`: when set, samples below/above the window are written
+ *   transparent (alpha 0) instead of clamped opaque. Independent of each other. */
 export function styleToRgba(
   data: ArrayLike<number>,
   width: number,
@@ -14,7 +16,8 @@ export function styleToRgba(
   max: number,
   gamma: number,
   lut?: Uint8Array | null,
-  maskOutside = false,
+  maskBelow = false,
+  maskAbove = false,
 ): Uint8ClampedArray<ArrayBuffer> {
   const n = width * height;
   const span = max - min || 1;
@@ -23,7 +26,7 @@ export function styleToRgba(
   const rgba = new Uint8ClampedArray(n * 4);
   for (let i = 0; i < n; i++) {
     const raw = (Number(data[i]) - min) / span;
-    const outside = raw < 0 || raw > 1;
+    const outside = (maskBelow && raw < 0) || (maskAbove && raw > 1);
     let t = raw <= 0 ? 0 : raw >= 1 ? 1 : raw;
     if (useGamma) t = Math.pow(t, invGamma);
     const o = i * 4;
@@ -38,7 +41,7 @@ export function styleToRgba(
       rgba[o + 1] = byte;
       rgba[o + 2] = byte;
     }
-    rgba[o + 3] = maskOutside && outside ? 0 : 255;
+    rgba[o + 3] = outside ? 0 : 255;
   }
   return rgba;
 }

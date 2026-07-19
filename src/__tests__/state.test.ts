@@ -17,19 +17,25 @@ describe("parseViewerState", () => {
     expect(s.minZoomOverride).toBeNull();
     expect(s.branch).toBeNull();
     expect(s.snapshot).toBeNull();
-    expect(s.maskOutsideRescale).toBe(false);
+    expect(s.maskBelow).toBe(false);
+    expect(s.maskAbove).toBe(false);
   });
 
-  it("parses the mask flag (mask=1 → true; absent/0 → false)", () => {
-    expect(
-      parseViewerState(new URLSearchParams("mask=1")).maskOutsideRescale,
-    ).toBe(true);
-    expect(
-      parseViewerState(new URLSearchParams()).maskOutsideRescale,
-    ).toBe(false);
-    expect(
-      parseViewerState(new URLSearchParams("mask=0")).maskOutsideRescale,
-    ).toBe(false);
+  it("parses the mask_below / mask_above flags independently", () => {
+    const below = parseViewerState(new URLSearchParams("mask_below=1"));
+    expect(below.maskBelow).toBe(true);
+    expect(below.maskAbove).toBe(false);
+    const above = parseViewerState(new URLSearchParams("mask_above=1"));
+    expect(above.maskBelow).toBe(false);
+    expect(above.maskAbove).toBe(true);
+    const both = parseViewerState(
+      new URLSearchParams("mask_below=1&mask_above=1"),
+    );
+    expect(both.maskBelow).toBe(true);
+    expect(both.maskAbove).toBe(true);
+    const none = parseViewerState(new URLSearchParams("mask_below=0"));
+    expect(none.maskBelow).toBe(false);
+    expect(none.maskAbove).toBe(false);
   });
 
   it("parses the Icechunk branch/snapshot ref params", () => {

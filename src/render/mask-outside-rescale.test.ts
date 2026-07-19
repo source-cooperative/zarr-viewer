@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Texture } from "@luma.gl/core";
 import { buildSingleBandRenderTile } from "./single-band-pipeline";
-import { MaskOutsideRange, PerBandLinearRescale } from "./shader-modules";
+import {
+  MASK_NO_LOWER,
+  MASK_NO_UPPER,
+  MaskOutsideRange,
+  PerBandLinearRescale,
+} from "./shader-modules";
 import type { MultiBandTileData } from "./shared-textures";
 import { autoStatsFromGlobal, buildBandStats, type AutoStats } from "./stats";
 import { LinearRescale } from "@developmentseed/deck.gl-raster/gpu-modules";
@@ -28,15 +33,17 @@ const baseState = {
   gamma: 1,
   stretch: "linear" as const,
   nodata: null,
+  maskBelow: false,
+  maskAbove: false,
 };
 
 // Each pipeline module is `{ module, props? }`; find by reference equality.
 type Mod = { module: unknown; props?: Record<string, unknown> };
 
-describe("single-band pipeline: mask outside rescale", () => {
-  it("omits the mask module when maskOutsideRescale is false", () => {
+describe("single-band pipeline: mask below/above rescale", () => {
+  it("omits the mask module when neither maskBelow nor maskAbove is set", () => {
     const renderTile = buildSingleBandRenderTile(
-      { ...baseState, rescale: [10, 20], maskOutsideRescale: false },
+      { ...baseState, rescale: [10, 20] },
       fakeTexture,
       null,
     );
@@ -46,9 +53,9 @@ describe("single-band pipeline: mask outside rescale", () => {
     ).toBe(false);
   });
 
-  it("inserts the mask module immediately before rescale", () => {
+  it("masks both sides immediately before rescale when both are set", () => {
     const renderTile = buildSingleBandRenderTile(
-      { ...baseState, rescale: [10, 20], maskOutsideRescale: true },
+      { ...baseState, rescale: [10, 20], maskBelow: true, maskAbove: true },
       fakeTexture,
       null,
     );
@@ -60,9 +67,31 @@ describe("single-band pipeline: mask outside rescale", () => {
     expect(pipe[maskIdx]!.props).toEqual({ maskMin: 10, maskMax: 20 });
   });
 
+  it("masks only below: high side uses the no-upper sentinel", () => {
+    const renderTile = buildSingleBandRenderTile(
+      { ...baseState, rescale: [10, 20], maskBelow: true },
+      fakeTexture,
+      null,
+    );
+    const pipe = renderTile(singleBandData(1)).renderPipeline as Mod[];
+    const mask = pipe.find((m) => m.module === MaskOutsideRange);
+    expect(mask!.props).toEqual({ maskMin: 10, maskMax: MASK_NO_UPPER });
+  });
+
+  it("masks only above: low side uses the no-lower sentinel", () => {
+    const renderTile = buildSingleBandRenderTile(
+      { ...baseState, rescale: [10, 20], maskAbove: true },
+      fakeTexture,
+      null,
+    );
+    const pipe = renderTile(singleBandData(1)).renderPipeline as Mod[];
+    const mask = pipe.find((m) => m.module === MaskOutsideRange);
+    expect(mask!.props).toEqual({ maskMin: MASK_NO_LOWER, maskMax: 20 });
+  });
+
   it("divides mask bounds by sampleScale for r8unorm textures", () => {
     const renderTile = buildSingleBandRenderTile(
-      { ...baseState, rescale: [0, 255], maskOutsideRescale: true },
+      { ...baseState, rescale: [0, 255], maskBelow: true, maskAbove: true },
       fakeTexture,
       null,
     );
@@ -73,7 +102,7 @@ describe("single-band pipeline: mask outside rescale", () => {
 
   it("does not mask when no window resolves (no rescale, no stats)", () => {
     const renderTile = buildSingleBandRenderTile(
-      { ...baseState, rescale: null, maskOutsideRescale: true },
+      { ...baseState, rescale: null, maskBelow: true, maskAbove: true },
       fakeTexture,
       null,
     );
@@ -88,7 +117,7 @@ describe("single-band pipeline: mask outside rescale", () => {
     );
     const autoStats: AutoStats = autoStatsFromGlobal(stats!);
     const renderTile = buildSingleBandRenderTile(
-      { ...baseState, rescale: null, maskOutsideRescale: true },
+      { ...baseState, rescale: null, maskBelow: true, maskAbove: true },
       fakeTexture,
       autoStats,
     );
@@ -104,19 +133,21 @@ describe("single-band pipeline: mask outside rescale", () => {
   });
 });
 
-describe("texture-array pipeline: mask outside rescale", () => {
+describe("texture-array pipeline: mask below/above rescale", () => {
   const baseTexState = {
     frameIndex: 0,
     colormap: "viridis",
     gamma: 1,
     stretch: "linear" as const,
+    maskBelow: false,
+    maskAbove: false,
   };
   // renderTile only reads `data.texture`; cast a minimal stub.
   const data = { texture: fakeTexture } as unknown as TextureArrayTileData;
 
-  it("omits the mask module when maskOutsideRescale is false", () => {
+  it("omits the mask module when neither side is set", () => {
     const renderTile = buildTextureArrayRenderTile(
-      { ...baseTexState, rescale: [10, 20], maskOutsideRescale: false },
+      { ...baseTexState, rescale: [10, 20] },
       fakeTexture,
       null,
     );
@@ -124,9 +155,9 @@ describe("texture-array pipeline: mask outside rescale", () => {
     expect(pipe.some((m) => m.module === MaskOutsideRange)).toBe(false);
   });
 
-  it("inserts the mask module immediately before rescale with raw bounds", () => {
+  it("masks both sides immediately before rescale with raw bounds", () => {
     const renderTile = buildTextureArrayRenderTile(
-      { ...baseTexState, rescale: [10, 20], maskOutsideRescale: true },
+      { ...baseTexState, rescale: [10, 20], maskBelow: true, maskAbove: true },
       fakeTexture,
       null,
     );
@@ -138,9 +169,30 @@ describe("texture-array pipeline: mask outside rescale", () => {
     expect(pipe[maskIdx]!.props).toEqual({ maskMin: 10, maskMax: 20 });
   });
 
+  it("masks only below / only above via the sentinels", () => {
+    const below = buildTextureArrayRenderTile(
+      { ...baseTexState, rescale: [10, 20], maskBelow: true },
+      fakeTexture,
+      null,
+    )(data).renderPipeline as Mod[];
+    expect(below.find((m) => m.module === MaskOutsideRange)!.props).toEqual({
+      maskMin: 10,
+      maskMax: MASK_NO_UPPER,
+    });
+    const above = buildTextureArrayRenderTile(
+      { ...baseTexState, rescale: [10, 20], maskAbove: true },
+      fakeTexture,
+      null,
+    )(data).renderPipeline as Mod[];
+    expect(above.find((m) => m.module === MaskOutsideRange)!.props).toEqual({
+      maskMin: MASK_NO_LOWER,
+      maskMax: 20,
+    });
+  });
+
   it("does not mask when no window resolves", () => {
     const renderTile = buildTextureArrayRenderTile(
-      { ...baseTexState, rescale: null, maskOutsideRescale: true },
+      { ...baseTexState, rescale: null, maskBelow: true, maskAbove: true },
       fakeTexture,
       null,
     );

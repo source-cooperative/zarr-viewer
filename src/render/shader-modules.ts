@@ -15,9 +15,16 @@ export const FilterNaN = {
   },
 } as const;
 
+/** Sentinel bound for {@link MaskOutsideRange} when one side of the mask is
+ * disabled — a value no real sample reaches, so that side never discards.
+ * Roughly ±FLT_MAX. Lets one module express below-only, above-only, or both. */
+export const MASK_NO_LOWER = -3.4e38;
+export const MASK_NO_UPPER = 3.4e38;
+
 /** Discards pixels whose red channel is outside [maskMin, maskMax]. Insert
  * BEFORE the rescale/clamp step so it sees raw sample values (in GPU-sample
- * units). Boundaries are inclusive. */
+ * units). Boundaries are inclusive. Pass {@link MASK_NO_LOWER}/{@link
+ * MASK_NO_UPPER} for a side that should not mask. */
 export const MaskOutsideRange = {
   name: "maskOutsideRange",
   fs: `uniform maskOutsideRangeUniforms {

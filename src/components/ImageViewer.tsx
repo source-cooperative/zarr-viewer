@@ -315,10 +315,20 @@ export function ImageViewer({
       mx,
       state.gamma,
       lut,
-      state.maskOutsideRescale,
+      state.maskBelow,
+      state.maskAbove,
     );
     return new ImageData(rgba, current.winW, current.winH);
-  }, [current, rmin, rmax, state.gamma, lut, autoStats, state.maskOutsideRescale]);
+  }, [
+    current,
+    rmin,
+    rmax,
+    state.gamma,
+    lut,
+    autoStats,
+    state.maskBelow,
+    state.maskAbove,
+  ]);
 
   // Push the styled window to Deck as a BitmapLayer over its world extent.
   useEffect(() => {
