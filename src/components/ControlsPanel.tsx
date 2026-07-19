@@ -171,7 +171,7 @@ export function ControlsPanel({
                       className="field-label"
                       style={{ textTransform: "none" }}
                     >
-                      Mask below range
+                      Mask below
                     </span>
                   </label>
                   <label
@@ -186,7 +186,7 @@ export function ControlsPanel({
                       className="field-label"
                       style={{ textTransform: "none" }}
                     >
-                      Mask above range
+                      Mask above
                     </span>
                     <input
                       type="checkbox"

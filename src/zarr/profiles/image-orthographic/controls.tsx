@@ -64,7 +64,7 @@ export function ImageOrthographicControls({
               onChange={(e) => update({ maskBelow: e.target.checked })}
             />
             <span className="field-label" style={{ textTransform: "none" }}>
-              Mask below range
+              Mask below
             </span>
           </label>
           <label
@@ -76,7 +76,7 @@ export function ImageOrthographicControls({
             }}
           >
             <span className="field-label" style={{ textTransform: "none" }}>
-              Mask above range
+              Mask above
             </span>
             <input
               type="checkbox"
