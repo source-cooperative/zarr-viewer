@@ -10,6 +10,8 @@
  * expose codec details on the public `Array` surface).
  */
 
+import type * as zarr from "zarrita";
+
 /** A single detected Zarr convention (name + optional version string). */
 export type ConventionEntry = {
   name: string;
@@ -195,37 +197,44 @@ export type CodecSummary = {
   compressor: string | null;
 };
 
-/** Fetch and parse the primary array's metadata document, returning a
- * `CodecSummary` for the panel. Tries `zarr.json` (v3) first, falls back
- * to `.zarray` (v2). Returns `null` on any failure (404, JSON parse
- * error, abort) — the panel renders `"—"` for affected rows. */
+/** Read and parse the primary array's metadata document through the opened
+ * store, returning a `CodecSummary` for the panel. Tries `zarr.json` (v3)
+ * first, falls back to `.zarray` (v2).
+ *
+ * Reads via `store.get()` (a content-addressed store read), NOT a raw
+ * `fetch("<url>/<var>/zarr.json")`. Icechunk chunks/metadata are
+ * content-addressed via manifests, so there is no object at that URL and the
+ * direct fetch 404s on every Icechunk store (issue #51); a store read resolves
+ * it uniformly for both Icechunk and plain Zarr. Returns `null` on any miss,
+ * parse error, or abort — the panel renders `"—"` for affected rows. */
 export async function fetchCodecSummary(
-  storeUrl: string,
+  store: zarr.Readable,
   variablePath: string,
   signal: AbortSignal,
 ): Promise<CodecSummary | null> {
-  const base = storeUrl.replace(/\/+$/, "");
   const path = variablePath.replace(/^\/+|\/+$/g, "");
-  const v3Url = `${base}/${path}/zarr.json`;
-  const v2Url = `${base}/${path}/.zarray`;
 
-  const json = await fetchJson(v3Url, signal);
+  const json = await readMetaJson(store, `/${path}/zarr.json`, signal);
   if (json) return summarizeV3(json);
   if (signal.aborted) return null;
 
-  const v2 = await fetchJson(v2Url, signal);
+  const v2 = await readMetaJson(store, `/${path}/.zarray`, signal);
   if (v2) return summarizeV2(v2);
   return null;
 }
 
-async function fetchJson(
-  url: string,
+/** Read a JSON metadata key through the store and parse it. Returns `null` on
+ * a missing key, a decode/parse error, or a prior abort. */
+async function readMetaJson(
+  store: zarr.Readable,
+  key: `/${string}`,
   signal: AbortSignal,
 ): Promise<unknown | null> {
+  if (signal.aborted) return null;
   try {
-    const resp = await fetch(url, { signal });
-    if (!resp.ok) return null;
-    return await resp.json();
+    const raw = await store.get(key);
+    if (!raw) return null;
+    return JSON.parse(new TextDecoder().decode(raw));
   } catch {
     return null;
   }
