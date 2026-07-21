@@ -25,7 +25,7 @@ afterEach(() => {
 const btn = () => screen.getByRole("button", { name: /location/i });
 
 describe("GeolocateButton", () => {
-  it("flies to the geolocated point at a city zoom on success", () => {
+  it("reports the geolocated coordinates on success", () => {
     mockGeolocation((success) =>
       success({
         coords: { longitude: -122.4, latitude: 37.77 },
@@ -35,10 +35,7 @@ describe("GeolocateButton", () => {
     render(<GeolocateButton onLocate={onLocate} onError={vi.fn()} />);
     fireEvent.click(btn());
     expect(onLocate).toHaveBeenCalledTimes(1);
-    const [lng, lat, zoom] = onLocate.mock.calls[0]!;
-    expect(lng).toBe(-122.4);
-    expect(lat).toBe(37.77);
-    expect(zoom).toBeGreaterThanOrEqual(8); // city-level
+    expect(onLocate).toHaveBeenCalledWith(-122.4, 37.77);
   });
 
   it("reports a permission-denied error and re-enables the button", () => {

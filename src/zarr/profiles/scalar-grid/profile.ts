@@ -759,6 +759,14 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     return geographicBounds(attrs["spatial:transform"], attrs["spatial:shape"]);
   },
 
+  // Native resolution (degrees/pixel) for the "zoom to your location" button.
+  nativeResolution: (ctx) => {
+    const attrs = ctx.spatialAttrs as ScalarGridSpatialAttrs | undefined;
+    if (!attrs || attrs["proj:code"] !== "EPSG:4326") return null;
+    const step = Math.abs(attrs["spatial:transform"]?.[0] ?? 0);
+    return step > 0 ? { kind: "degrees", value: step } : null;
+  },
+
   Controls: ScalarGridControls,
 
   async resolveNode(ctx, state) {

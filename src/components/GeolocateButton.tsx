@@ -1,18 +1,16 @@
 import { useState } from "react";
 
-/** City / neighborhood zoom to land on when the user's location is found —
- * useful regardless of the current zoom. */
-const GEOLOCATE_ZOOM = 11;
-
 /** A map button that flies to the user's current location (browser Geolocation
- * API). One-shot: it centers the map once per click, with no live tracking or
- * marker. Errors surface through `onError` (the app's toast). Styled to match
- * the app's other on-map buttons (`FullscreenButton`). */
+ * API) and drops a marker there. One-shot: it centers the map once per click,
+ * with no live tracking. The caller picks the target zoom (the app matches the
+ * dataset's native resolution) and renders the marker; errors surface through
+ * `onError` (the app's toast). Styled to match the app's other on-map buttons
+ * (`FullscreenButton`). */
 export function GeolocateButton({
   onLocate,
   onError,
 }: {
-  onLocate: (longitude: number, latitude: number, zoom: number) => void;
+  onLocate: (longitude: number, latitude: number) => void;
   onError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -26,7 +24,7 @@ export function GeolocateButton({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setBusy(false);
-        onLocate(pos.coords.longitude, pos.coords.latitude, GEOLOCATE_ZOOM);
+        onLocate(pos.coords.longitude, pos.coords.latitude);
       },
       (err) => {
         setBusy(false);
