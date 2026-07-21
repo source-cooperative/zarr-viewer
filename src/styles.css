@@ -263,6 +263,16 @@ a {
 .map-icon-button:hover {
   background: var(--surface-muted);
 }
+.map-icon-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .panel-header {
   font-weight: 600;

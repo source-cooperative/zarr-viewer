@@ -28,6 +28,7 @@ import type {
 } from "./zarr/profiles/image-orthographic/types";
 import { formatNumber } from "./components/RangeSlider";
 import { FullscreenButton } from "./components/FullscreenButton";
+import { GeolocateButton } from "./components/GeolocateButton";
 import { ArrayOverview, StructureSection } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
@@ -879,6 +880,12 @@ export default function App() {
       />
 
       <FullscreenButton />
+
+      {/* Geolocate is map-only (meaningless in the pixel-space image profile).
+          Fly-to is programmatic → not written to the URL. */}
+      {geographic && (
+        <GeolocateButton onLocate={handleFlyTo} onError={setError} />
+      )}
 
       {!state.url && <EmptyState onSubmit={handleLoad} />}
     </div>
