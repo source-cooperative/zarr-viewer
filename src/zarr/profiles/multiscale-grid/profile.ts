@@ -209,6 +209,18 @@ export const multiscaleGridProfile: ZarrProfile<
       : mercatorBounds(transform, shape);
   },
 
+  // Native resolution from the finest level (layout[0]) — degrees for a
+  // geographic CRS, else EPSG:3857 mercator metres.
+  nativeResolution: (ctx) => {
+    const layout = ctx.metadata.multiscales.layout[0];
+    const step = Math.abs(layout?.["spatial:transform"]?.[0] ?? 0);
+    if (!(step > 0)) return null;
+    const geographic = ctx.crsCode != null && /4326|4269|4258/.test(ctx.crsCode);
+    return geographic
+      ? { kind: "degrees", value: step }
+      : { kind: "mercator-meters", value: step };
+  },
+
   Controls: MultiscaleGridControls,
 
   resolveNode: async (ctx) => ctx.group,

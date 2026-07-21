@@ -7,14 +7,20 @@
 ## Summary
 
 A small map button that, on click, uses the browser Geolocation API to fly the
-map to the user's current location at a city-level zoom. A custom themed button
-matching the app's existing on-map controls (not MapLibre's native
+map to the user's current location — zoomed so the dataset's native pixels
+approximately match screen pixels — and drops a marker there. A custom themed
+button matching the app's existing on-map controls (not MapLibre's native
 `GeolocateControl`).
 
 ## Behavior
 
-- One-shot: click → request location → `flyTo(user, zoom ≈ 11)`. No live
-  tracking, no accuracy circle, no persistent marker.
+- One-shot: click → request location → `flyTo(user, nativeZoom)` and mark the
+  spot with a "you are here" dot. No live tracking, no accuracy circle.
+- **Native-resolution zoom:** the target zoom is where one data pixel ≈ one
+  screen pixel at the user's latitude (`pixelMatchZoom`), so fine datasets zoom
+  in and coarse ones don't over-zoom. Clamped to `[2, 20]`; a fixed city zoom
+  (11) is the fallback when the profile exposes no native resolution.
+- The marker persists until the store (`state.url`) changes.
 - While the request is pending the button is disabled and shows a spinner.
 - Errors (permission denied, unavailable, timeout, or no Geolocation API)
   surface via the app's existing red error `Toast`.
@@ -97,10 +103,25 @@ keyframe yet):
 @keyframes spin { to { transform: rotate(360deg); } }
 ```
 
+## Native-resolution zoom
+
+`src/zarr/native-zoom.ts` (pure, tested): `pixelMatchZoom(res, latitude)` maps
+a `NativeResolution` (`{kind: "degrees" | "ground-meters" | "mercator-meters",
+value}`) to the MapLibre zoom where data px ≈ screen px. A new profile hook
+`nativeResolution(ctx, state) → NativeResolution | null` supplies it:
+scalar-grid (degrees from the spatial affine), projected-grid override (ground
+metres), multiscale-grid (finest-level mercator metres, or degrees for a
+geographic CRS). `App.handleGeolocate` computes the clamped zoom and passes it
+to `handleFlyTo`.
+
+## Marker
+
+`react-map-gl`'s `<Marker>` renders a `.geolocate-dot` (blue dot, white ring)
+at `geolocated` while it's set; `App` clears `geolocated` on `state.url` change.
+
 ## Non-goals
 
-- No live tracking / accuracy circle / marker (that's the built-in control's
-  territory; out of scope for "a button that zooms to your location").
+- No live tracking / accuracy circle (that's the built-in control's territory).
 - No persisting the located view to the URL.
 
 ## Testing

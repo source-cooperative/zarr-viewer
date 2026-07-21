@@ -17,7 +17,7 @@ import {
 } from "react";
 import type * as zarr from "zarrita";
 import type { MapRef } from "react-map-gl/maplibre";
-import { Map as MaplibreMap, useControl } from "react-map-gl/maplibre";
+import { Map as MaplibreMap, Marker, useControl } from "react-map-gl/maplibre";
 import { resolveBasemap } from "./basemaps";
 import { ControlsPanel } from "./components/ControlsPanel";
 import { EmptyState } from "./components/EmptyState";
@@ -29,6 +29,7 @@ import type {
 import { formatNumber } from "./components/RangeSlider";
 import { FullscreenButton } from "./components/FullscreenButton";
 import { GeolocateButton } from "./components/GeolocateButton";
+import { pixelMatchZoom } from "./zarr/native-zoom";
 import { ArrayOverview, StructureSection } from "./components/StructurePanel";
 import { humanizeError, Toast } from "./components/Toast";
 import { ZoomHint } from "./components/ZoomHint";
@@ -86,6 +87,12 @@ function DeckGLOverlay(
   return null;
 }
 
+// "Zoom to your location" target zoom: match the dataset's native resolution
+// (pixelMatchZoom), clamped to this range; the fallback is used when the
+// profile exposes no native resolution.
+const GEOLOCATE_MIN_ZOOM = 2;
+const GEOLOCATE_MAX_ZOOM = 20;
+const GEOLOCATE_FALLBACK_ZOOM = 11;
 
 export default function App() {
   const mapRef = useRef<MapRef>(null);
@@ -123,6 +130,12 @@ export default function App() {
   // is "settled" from the start.
   const [viewZoom, setViewZoom] = useState<number>(() => state.view?.[2] ?? 2);
   const [mapSettled, setMapSettled] = useState<boolean>(() => !!state.view);
+  // Geolocated point (from the "zoom to your location" button), marked on the
+  // map until the store changes.
+  const [geolocated, setGeolocated] = useState<{
+    longitude: number;
+    latitude: number;
+  } | null>(null);
 
   // Hover-value tooltip. The cursor read is rAF-throttled (one re-render per
   // frame); `hover` is local state and is NOT a layer dep, so it never rebuilds
@@ -615,6 +628,29 @@ export default function App() {
     [],
   );
 
+  // "Zoom to your location": fly to the geolocated point at the zoom where the
+  // dataset's native pixels ≈ screen pixels (#63), and mark the spot.
+  const handleGeolocate = useCallback(
+    (longitude: number, latitude: number) => {
+      const res =
+        profile && profileCtx && profileState
+          ? (profile.nativeResolution?.(profileCtx, profileState) ?? null)
+          : null;
+      const native = res ? pixelMatchZoom(res, latitude) : NaN;
+      const zoom = Number.isFinite(native)
+        ? Math.min(GEOLOCATE_MAX_ZOOM, Math.max(GEOLOCATE_MIN_ZOOM, native))
+        : GEOLOCATE_FALLBACK_ZOOM;
+      handleFlyTo(longitude, latitude, zoom);
+      setGeolocated({ longitude, latitude });
+    },
+    [profile, profileCtx, profileState, handleFlyTo],
+  );
+
+  // Drop the location marker when the store changes.
+  useEffect(() => {
+    setGeolocated(null);
+  }, [state.url]);
+
   const handleLoad = useCallback(
     (request: ExampleLoadRequest) => {
       // Current URL params win over example defaults (so a shared link
@@ -742,6 +778,14 @@ export default function App() {
           getCursor={({ isDragging }) => (isDragging ? "grabbing" : "crosshair")}
           onDeviceInitialized={setDevice}
         />
+        {geolocated && (
+          <Marker
+            longitude={geolocated.longitude}
+            latitude={geolocated.latitude}
+          >
+            <div className="geolocate-dot" aria-label="Your location" />
+          </Marker>
+        )}
       </MaplibreMap>
       )}
 
@@ -884,7 +928,7 @@ export default function App() {
       {/* Geolocate is map-only (meaningless in the pixel-space image profile).
           Fly-to is programmatic → not written to the URL. */}
       {geographic && (
-        <GeolocateButton onLocate={handleFlyTo} onError={setError} />
+        <GeolocateButton onLocate={handleGeolocate} onError={setError} />
       )}
 
       {!state.url && <EmptyState onSubmit={handleLoad} />}

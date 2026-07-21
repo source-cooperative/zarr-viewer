@@ -5,6 +5,7 @@ import type * as zarr from "zarrita";
 import type { AutoStats } from "../render/stats";
 import type { ViewerState } from "../state/types";
 import type { StructureProfileSummary } from "./structure";
+import type { NativeResolution } from "./native-zoom";
 
 /** Base context shape every profile's `prepare()` returns. Profiles extend
  * it with their own dataset-specific fields (variable list, dim sizes,
@@ -105,6 +106,10 @@ export type ZarrProfile<
    * intro fly-in (`?intro=`, issue #42) — distinct from `initialBounds`, which
    * stays the world-sized default opening camera. */
   dataBounds?: (ctx: Ctx, state: S) => [number, number, number, number] | null;
+  /** The dataset's native pixel resolution, or null when it has none. Lets the
+   * "zoom to your location" button (#63) land at the zoom where data pixels ≈
+   * screen pixels (see `pixelMatchZoom`). */
+  nativeResolution?: (ctx: Ctx, state: S) => NativeResolution | null;
   /** Lowest map zoom at which this profile's layer renders tiles (matches
    * the layer's `minZoom`). When set, the chassis shows a "zoom in" hint
    * below it. Omit for profiles that render at every zoom. */

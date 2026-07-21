@@ -180,6 +180,16 @@ export const projectedGridProfile: ZarrProfile<
     return projectedBounds(transform, shape, wkt2);
   },
 
+  // Native resolution is the projected step in ground metres (constant across
+  // latitude) — overrides scalar-grid's degrees version.
+  nativeResolution: (ctx) => {
+    const attrs = ctx.spatialAttrs as
+      | { "spatial:transform"?: number[] }
+      | undefined;
+    const step = Math.abs(attrs?.["spatial:transform"]?.[0] ?? 0);
+    return step > 0 ? { kind: "ground-meters", value: step } : null;
+  },
+
   getStructure: (ctx, state: ScalarGridState) => ({
     zarrVersion: "v3",
     variables: [{ path: state.variable }],
