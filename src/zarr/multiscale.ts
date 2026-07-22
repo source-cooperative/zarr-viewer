@@ -20,7 +20,8 @@ export type MultiscaleLevelInput = {
 /** The (subset of the) GeoZarr metadata object `parseGeoZarrMetadata` needs. */
 export type GeoZarrMetadata = {
   "spatial:dimensions": [string, string];
-  "proj:wkt2": string;
+  "proj:wkt2"?: string;
+  "proj:code"?: string;
   multiscales: {
     layout: {
       asset: string;
@@ -149,6 +150,29 @@ export function buildGeoZarrMetadata(opts: {
         asset: lvl.asset,
         "spatial:transform": geoTransformToSpatial(lvl.geoTransform),
         "spatial:shape": [lvl.shape[0], lvl.shape[1]],
+      })),
+    },
+  };
+}
+
+/** Build deck.gl-zarr metadata from a native `zarr-conventions/multiscales`
+ * layout for one data variable. The store's `layout[].asset` names the level
+ * GROUP (e.g. "0"); deck.gl-zarr opens `asset` as an ARRAY, so rewrite it to
+ * "<level>/<variable>" (e.g. "0/NDVI"). Levels stay finest-first. */
+export function buildLayoutGeoZarrMetadata(opts: {
+  layout: MultiscaleLayout;
+  variable: string;
+}): GeoZarrMetadata {
+  const { layout, variable } = opts;
+  const crs = layout.crs.code ? { "proj:code": layout.crs.code } : { "proj:wkt2": layout.crs.wkt2 };
+  return {
+    "spatial:dimensions": layout.dims,
+    ...crs,
+    multiscales: {
+      layout: layout.levels.map((lvl) => ({
+        asset: `${lvl.asset}/${variable}`,
+        "spatial:transform": lvl["spatial:transform"],
+        "spatial:shape": lvl["spatial:shape"],
       })),
     },
   };
