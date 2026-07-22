@@ -23,3 +23,7 @@ dist-ssr
 
 *.tsbuildinfo
 .claude/settings.json
+
+# Superpowers session scratch (PR drafts, task briefs, review diffs, SDD
+# ledger). The committed design docs live under docs/superpowers/, not here.
+.superpowers/
