@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGeoZarrMetadata,
+  buildLayoutGeoZarrMetadata,
   parseMultiscaleDatasets,
+  parseMultiscaleLayout,
 } from "../zarr/multiscale";
 
 describe("parseMultiscaleDatasets", () => {
@@ -77,5 +79,89 @@ describe("buildGeoZarrMetadata", () => {
       dims: ["latitude", "longitude"],
     });
     expect(meta["spatial:dimensions"]).toEqual(["latitude", "longitude"]);
+  });
+});
+
+describe("buildLayoutGeoZarrMetadata", () => {
+  const layout = parseMultiscaleLayout({
+    "spatial:dimensions": ["latitude", "longitude"],
+    "proj:code": "EPSG:4326",
+    multiscales: {
+      layout: [
+        { asset: "0", "spatial:transform": [0.05, 0, -180, 0, -0.05, 90], "spatial:shape": [3600, 7200] },
+        { asset: "1", "spatial:transform": [0.1, 0, -180, 0, -0.1, 90], "spatial:shape": [1800, 3600] },
+      ],
+    },
+  })!;
+
+  it("rewrites asset to <level>/<var>, keeps finest-first order + transforms", () => {
+    const meta = buildLayoutGeoZarrMetadata({ layout, variable: "NDVI" });
+    expect(meta.multiscales.layout.map((l) => l.asset)).toEqual(["0/NDVI", "1/NDVI"]);
+    expect(meta.multiscales.layout[0]!["spatial:shape"]).toEqual([3600, 7200]);
+    expect(meta.multiscales.layout[0]!["spatial:transform"]).toEqual([0.05, 0, -180, 0, -0.05, 90]);
+  });
+
+  it("emits proj:code + spatial:dimensions from the layout", () => {
+    const meta = buildLayoutGeoZarrMetadata({ layout, variable: "NDVI" });
+    expect(meta["proj:code"]).toBe("EPSG:4326");
+    expect(meta["proj:wkt2"]).toBeUndefined();
+    expect(meta["spatial:dimensions"]).toEqual(["latitude", "longitude"]);
+  });
+});
+
+describe("parseMultiscaleLayout", () => {
+  const layoutAttrs = {
+    "spatial:dimensions": ["latitude", "longitude"],
+    "proj:code": "EPSG:4326",
+    multiscales: {
+      layout: [
+        { asset: "0", "spatial:transform": [0.05, 0, -180, 0, -0.05, 90], "spatial:shape": [3600, 7200] },
+        { asset: "1", "spatial:transform": [0.1, 0, -180, 0, -0.1, 90], "spatial:shape": [1800, 3600] },
+      ],
+    },
+  };
+
+  it("reads finest-first levels, dims, and proj:code CRS", () => {
+    const out = parseMultiscaleLayout(layoutAttrs)!;
+    expect(out.levels.map((l) => l.asset)).toEqual(["0", "1"]);
+    expect(out.levels[0]!["spatial:shape"]).toEqual([3600, 7200]);
+    expect(out.dims).toEqual(["latitude", "longitude"]);
+    expect(out.crs).toEqual({ code: "EPSG:4326" });
+  });
+
+  it("reads a proj:wkt2 CRS when no proj:code", () => {
+    const out = parseMultiscaleLayout({ ...layoutAttrs, "proj:code": undefined, "proj:wkt2": "WKT" })!;
+    expect(out.crs).toEqual({ wkt2: "WKT" });
+  });
+
+  it("returns null for the legacy datasets array, OME, and plain stores", () => {
+    expect(parseMultiscaleLayout({ multiscales: [{ datasets: [{ path: "1x" }] }] })).toBeNull();
+    expect(parseMultiscaleLayout({ multiscales: { layout: [] } })).toBeNull();
+    expect(parseMultiscaleLayout({})).toBeNull();
+    expect(parseMultiscaleLayout(null)).toBeNull();
+  });
+
+  it("returns null when a layout item is missing transform/shape", () => {
+    expect(parseMultiscaleLayout({
+      "spatial:dimensions": ["latitude", "longitude"],
+      "proj:code": "EPSG:4326",
+      multiscales: { layout: [{ asset: "0" }] },
+    })).toBeNull();
+  });
+
+  it("returns null for malformed root/level fields", () => {
+    const base = {
+      "spatial:dimensions": ["latitude", "longitude"],
+      "proj:code": "EPSG:4326",
+      multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,90], "spatial:shape": [3600,7200] }] },
+    };
+    // non-string dimension name
+    expect(parseMultiscaleLayout({ ...base, "spatial:dimensions": [1, "longitude"] })).toBeNull();
+    // non-integer / non-finite shape
+    expect(parseMultiscaleLayout({ ...base, multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,90], "spatial:shape": [3600.5, 7200] }] } })).toBeNull();
+    // non-finite transform
+    expect(parseMultiscaleLayout({ ...base, multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,Infinity], "spatial:shape": [3600,7200] }] } })).toBeNull();
+    // empty-string CRS with no wkt2
+    expect(parseMultiscaleLayout({ ...base, "proj:code": "" })).toBeNull();
   });
 });

@@ -20,7 +20,8 @@ export type MultiscaleLevelInput = {
 /** The (subset of the) GeoZarr metadata object `parseGeoZarrMetadata` needs. */
 export type GeoZarrMetadata = {
   "spatial:dimensions": [string, string];
-  "proj:wkt2": string;
+  "proj:wkt2"?: string;
+  "proj:code"?: string;
   multiscales: {
     layout: {
       asset: string;
@@ -56,10 +57,72 @@ export function parseMultiscaleDatasets(rootAttrs: unknown): string[] | null {
   return paths.length > 0 ? paths : null;
 }
 
+export type MultiscaleLayoutLevel = {
+  asset: string;
+  "spatial:transform": [number, number, number, number, number, number];
+  "spatial:shape": [number, number];
+};
+export type MultiscaleLayout = {
+  levels: MultiscaleLayoutLevel[];
+  dims: [string, string];
+  crs: { code?: string; wkt2?: string };
+};
+
+function asAffine6(v: unknown): [number, number, number, number, number, number] | null {
+  if (!Array.isArray(v) || v.length !== 6 || v.some((n) => typeof n !== "number" || !Number.isFinite(n))) return null;
+  return v as [number, number, number, number, number, number];
+}
+function asShape2(v: unknown): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2 || v.some((n) => typeof n !== "number" || !Number.isInteger(n) || n < 1)) return null;
+  return [v[0] as number, v[1] as number];
+}
+
+/** Read the `zarr-conventions/multiscales` v1 `{ layout: [...] }` object schema
+ * (distinct from the legacy CF `[{ datasets }]` array handled by
+ * {@link parseMultiscaleDatasets}). Returns levels FINEST-FIRST (store order),
+ * the spatial dim pair, and the CRS, or null when the store isn't this schema
+ * or a layout item lacks a per-level transform/shape. */
+export function parseMultiscaleLayout(rootAttrs: unknown): MultiscaleLayout | null {
+  if (typeof rootAttrs !== "object" || rootAttrs === null) return null;
+  const a = rootAttrs as Record<string, unknown>;
+  const ms = a.multiscales;
+  // Must be the OBJECT form { layout: [...] } — the legacy datasets form is an array.
+  if (typeof ms !== "object" || ms === null || Array.isArray(ms)) return null;
+  const layout = (ms as { layout?: unknown }).layout;
+  if (!Array.isArray(layout) || layout.length === 0) return null;
+
+  const levels: MultiscaleLayoutLevel[] = [];
+  for (const item of layout) {
+    if (typeof item !== "object" || item === null) return null;
+    const it = item as Record<string, unknown>;
+    const asset = it.asset;
+    const transform = asAffine6(it["spatial:transform"]);
+    const shape = asShape2(it["spatial:shape"]);
+    if (typeof asset !== "string" || !transform || !shape) return null;
+    levels.push({ asset, "spatial:transform": transform, "spatial:shape": shape });
+  }
+
+  const dimsRaw = a["spatial:dimensions"];
+  if (!Array.isArray(dimsRaw) || dimsRaw.length < 2) return null;
+  const yName = dimsRaw[dimsRaw.length - 2];
+  const xName = dimsRaw[dimsRaw.length - 1];
+  if (typeof yName !== "string" || typeof xName !== "string") return null;
+  const dims: [string, string] = [yName, xName];
+
+  const crs: { code?: string; wkt2?: string } = {};
+  const code = a["proj:code"];
+  const wkt2 = a["proj:wkt2"];
+  if (typeof code === "string" && code) crs.code = code;
+  else if (typeof wkt2 === "string" && wkt2) crs.wkt2 = wkt2;
+  else return null;
+
+  return { levels, dims, crs };
+}
+
 /** GDAL `GeoTransform` `[ox, px, rx, oy, ry, py]` → developmentseed
  * `spatial:transform` `[px, rx, ox, ry, py, oy]` (scaleX, 0, translateX,
  * 0, scaleY, translateY). */
-function geoTransformToSpatial(
+export function geoTransformToSpatial(
   gt: readonly number[],
 ): [number, number, number, number, number, number] {
   const [ox, px, rx, oy, ry, py] = gt;
@@ -87,6 +150,29 @@ export function buildGeoZarrMetadata(opts: {
         asset: lvl.asset,
         "spatial:transform": geoTransformToSpatial(lvl.geoTransform),
         "spatial:shape": [lvl.shape[0], lvl.shape[1]],
+      })),
+    },
+  };
+}
+
+/** Build deck.gl-zarr metadata from a native `zarr-conventions/multiscales`
+ * layout for one data variable. The store's `layout[].asset` names the level
+ * GROUP (e.g. "0"); deck.gl-zarr opens `asset` as an ARRAY, so rewrite it to
+ * "<level>/<variable>" (e.g. "0/NDVI"). Levels stay finest-first. */
+export function buildLayoutGeoZarrMetadata(opts: {
+  layout: MultiscaleLayout;
+  variable: string;
+}): GeoZarrMetadata {
+  const { layout, variable } = opts;
+  const crs = layout.crs.code ? { "proj:code": layout.crs.code } : { "proj:wkt2": layout.crs.wkt2 };
+  return {
+    "spatial:dimensions": layout.dims,
+    ...crs,
+    multiscales: {
+      layout: layout.levels.map((lvl) => ({
+        asset: `${lvl.asset}/${variable}`,
+        "spatial:transform": lvl["spatial:transform"],
+        "spatial:shape": lvl["spatial:shape"],
       })),
     },
   };
