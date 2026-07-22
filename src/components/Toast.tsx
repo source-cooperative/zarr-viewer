@@ -67,7 +67,7 @@ export function humanizeError(err: unknown): string {
     parseHttpStatus(msg) === 404 ||
     lower.includes("not found")
   ) {
-    return "No Zarr store found at that URL (404). Check the path points to the store root (no trailing /zarr.json) — for source.coop datasets the byte-serving host is data.source.coop.";
+    return "No Zarr store found at that URL (404). Check the path points to the store root (no trailing /zarr.json) — for source.coop datasets the byte-serving host is data.source.coop. If this is an Icechunk repository, this viewer couldn't detect it automatically; try an Icechunk-aware client instead.";
   }
   // CORS is indistinguishable from a hard network failure in fetch(), so only
   // an explicit CORS token lands here (plain network failures are transient).
