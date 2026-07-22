@@ -10,6 +10,7 @@ import { bytesPerElement } from "../../chunk-size";
 import {
   buildGeoZarrMetadata,
   buildLayoutGeoZarrMetadata,
+  geoTransformToSpatial,
   parseMultiscaleDatasets,
   parseMultiscaleLayout,
 } from "../../multiscale";
@@ -303,7 +304,7 @@ async function prepareCf(
     levelDownsamples,
     crsCode,
     coarsestArray: coarsestArray!,
-    coarsestTransform: coarsestGeoTransform,
+    coarsestTransform: geoTransformToSpatial(coarsestGeoTransform),
     dimLabel: {},
     minRenderZoom,
   };
@@ -460,7 +461,7 @@ export const multiscaleGridProfile: ZarrProfile<
     const ph = Math.min(arr.chunks[nd - 2] ?? h, h);
     const pw = Math.min(arr.chunks[nd - 1] ?? w, w);
     const t = ctx.coarsestTransform;
-    const [ox, px, , oy, , py] = t;
+    const [px, , ox, , py, oy] = t;
     const geographic = isGeographicCrs(ctx.crsCode);
     const [mx, my] = geographic ? [-62, -4] : [mercX(-62), mercY(-4)];
     const centerCol = (mx - (ox ?? 0)) / (px || 1);

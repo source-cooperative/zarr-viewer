@@ -122,7 +122,7 @@ export function parseMultiscaleLayout(rootAttrs: unknown): MultiscaleLayout | nu
 /** GDAL `GeoTransform` `[ox, px, rx, oy, ry, py]` → developmentseed
  * `spatial:transform` `[px, rx, ox, ry, py, oy]` (scaleX, 0, translateX,
  * 0, scaleY, translateY). */
-function geoTransformToSpatial(
+export function geoTransformToSpatial(
   gt: readonly number[],
 ): [number, number, number, number, number, number] {
   const [ox, px, rx, oy, ry, py] = gt;
