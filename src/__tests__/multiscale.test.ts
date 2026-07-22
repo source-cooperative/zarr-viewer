@@ -120,4 +120,20 @@ describe("parseMultiscaleLayout", () => {
       multiscales: { layout: [{ asset: "0" }] },
     })).toBeNull();
   });
+
+  it("returns null for malformed root/level fields", () => {
+    const base = {
+      "spatial:dimensions": ["latitude", "longitude"],
+      "proj:code": "EPSG:4326",
+      multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,90], "spatial:shape": [3600,7200] }] },
+    };
+    // non-string dimension name
+    expect(parseMultiscaleLayout({ ...base, "spatial:dimensions": [1, "longitude"] })).toBeNull();
+    // non-integer / non-finite shape
+    expect(parseMultiscaleLayout({ ...base, multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,90], "spatial:shape": [3600.5, 7200] }] } })).toBeNull();
+    // non-finite transform
+    expect(parseMultiscaleLayout({ ...base, multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,Infinity], "spatial:shape": [3600,7200] }] } })).toBeNull();
+    // empty-string CRS with no wkt2
+    expect(parseMultiscaleLayout({ ...base, "proj:code": "" })).toBeNull();
+  });
 });

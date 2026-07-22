@@ -68,11 +68,11 @@ export type MultiscaleLayout = {
 };
 
 function asAffine6(v: unknown): [number, number, number, number, number, number] | null {
-  if (!Array.isArray(v) || v.length !== 6 || v.some((n) => typeof n !== "number")) return null;
+  if (!Array.isArray(v) || v.length !== 6 || v.some((n) => typeof n !== "number" || !Number.isFinite(n))) return null;
   return v as [number, number, number, number, number, number];
 }
 function asShape2(v: unknown): [number, number] | null {
-  if (!Array.isArray(v) || v.length !== 2 || v.some((n) => typeof n !== "number")) return null;
+  if (!Array.isArray(v) || v.length !== 2 || v.some((n) => typeof n !== "number" || !Number.isInteger(n) || n < 1)) return null;
   return [v[0] as number, v[1] as number];
 }
 
@@ -103,14 +103,16 @@ export function parseMultiscaleLayout(rootAttrs: unknown): MultiscaleLayout | nu
 
   const dimsRaw = a["spatial:dimensions"];
   if (!Array.isArray(dimsRaw) || dimsRaw.length < 2) return null;
-  const dims: [string, string] = [
-    String(dimsRaw[dimsRaw.length - 2]),
-    String(dimsRaw[dimsRaw.length - 1]),
-  ];
+  const yName = dimsRaw[dimsRaw.length - 2];
+  const xName = dimsRaw[dimsRaw.length - 1];
+  if (typeof yName !== "string" || typeof xName !== "string") return null;
+  const dims: [string, string] = [yName, xName];
 
   const crs: { code?: string; wkt2?: string } = {};
-  if (typeof a["proj:code"] === "string") crs.code = a["proj:code"];
-  else if (typeof a["proj:wkt2"] === "string") crs.wkt2 = a["proj:wkt2"];
+  const code = a["proj:code"];
+  const wkt2 = a["proj:wkt2"];
+  if (typeof code === "string" && code) crs.code = code;
+  else if (typeof wkt2 === "string" && wkt2) crs.wkt2 = wkt2;
   else return null;
 
   return { levels, dims, crs };
