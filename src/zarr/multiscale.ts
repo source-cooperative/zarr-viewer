@@ -56,6 +56,66 @@ export function parseMultiscaleDatasets(rootAttrs: unknown): string[] | null {
   return paths.length > 0 ? paths : null;
 }
 
+export type MultiscaleLayoutLevel = {
+  asset: string;
+  "spatial:transform": [number, number, number, number, number, number];
+  "spatial:shape": [number, number];
+};
+export type MultiscaleLayout = {
+  levels: MultiscaleLayoutLevel[];
+  dims: [string, string];
+  crs: { code?: string; wkt2?: string };
+};
+
+function asAffine6(v: unknown): [number, number, number, number, number, number] | null {
+  if (!Array.isArray(v) || v.length !== 6 || v.some((n) => typeof n !== "number")) return null;
+  return v as [number, number, number, number, number, number];
+}
+function asShape2(v: unknown): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2 || v.some((n) => typeof n !== "number")) return null;
+  return [v[0] as number, v[1] as number];
+}
+
+/** Read the `zarr-conventions/multiscales` v1 `{ layout: [...] }` object schema
+ * (distinct from the legacy CF `[{ datasets }]` array handled by
+ * {@link parseMultiscaleDatasets}). Returns levels FINEST-FIRST (store order),
+ * the spatial dim pair, and the CRS, or null when the store isn't this schema
+ * or a layout item lacks a per-level transform/shape. */
+export function parseMultiscaleLayout(rootAttrs: unknown): MultiscaleLayout | null {
+  if (typeof rootAttrs !== "object" || rootAttrs === null) return null;
+  const a = rootAttrs as Record<string, unknown>;
+  const ms = a.multiscales;
+  // Must be the OBJECT form { layout: [...] } — the legacy datasets form is an array.
+  if (typeof ms !== "object" || ms === null || Array.isArray(ms)) return null;
+  const layout = (ms as { layout?: unknown }).layout;
+  if (!Array.isArray(layout) || layout.length === 0) return null;
+
+  const levels: MultiscaleLayoutLevel[] = [];
+  for (const item of layout) {
+    if (typeof item !== "object" || item === null) return null;
+    const it = item as Record<string, unknown>;
+    const asset = it.asset;
+    const transform = asAffine6(it["spatial:transform"]);
+    const shape = asShape2(it["spatial:shape"]);
+    if (typeof asset !== "string" || !transform || !shape) return null;
+    levels.push({ asset, "spatial:transform": transform, "spatial:shape": shape });
+  }
+
+  const dimsRaw = a["spatial:dimensions"];
+  if (!Array.isArray(dimsRaw) || dimsRaw.length < 2) return null;
+  const dims: [string, string] = [
+    String(dimsRaw[dimsRaw.length - 2]),
+    String(dimsRaw[dimsRaw.length - 1]),
+  ];
+
+  const crs: { code?: string; wkt2?: string } = {};
+  if (typeof a["proj:code"] === "string") crs.code = a["proj:code"];
+  else if (typeof a["proj:wkt2"] === "string") crs.wkt2 = a["proj:wkt2"];
+  else return null;
+
+  return { levels, dims, crs };
+}
+
 /** GDAL `GeoTransform` `[ox, px, rx, oy, ry, py]` → developmentseed
  * `spatial:transform` `[px, rx, ox, ry, py, oy]` (scaleX, 0, translateX,
  * 0, scaleY, translateY). */
