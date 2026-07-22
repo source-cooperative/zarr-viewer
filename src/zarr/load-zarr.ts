@@ -54,22 +54,37 @@ export function isIcechunkUrl(url: string): boolean {
   return /\.icechunk\/?$/.test(url.split("?")[0]!);
 }
 
-/** Layout probe: HEAD `<url>/repo` to decide whether a suffix-less URL is an
- * Icechunk repo. Icechunk writes a root `repo` object — its "repo-info" config
- * (the response carries `x-amz-meta-ic_file_type: repo-info`) — whereas a
- * plain Zarr hierarchy has `zarr.json` there instead. data.source.coop serves
- * this object with permissive CORS and honors HEAD. Any network/CORS error (or
- * a 404 on a real Zarr store) returns false, falling back to the Zarr path. */
-async function hasIcechunkRepoConfig(url: string): Promise<boolean> {
+/** Layout probe: check whether a suffix-less URL is an Icechunk repo, for
+ * hosts where the fast filename-suffix path (`isIcechunkUrl`) doesn't apply
+ * (e.g. source.coop's `*_icechunk` datasets, or an arbitrary host like a
+ * Cloudflare R2 bucket serving an Icechunk repo under its own domain).
+ *
+ * Tries two independent markers, since neither alone is universal across
+ * writers/hosts:
+ *  1. `<url>/repo` — the repo-info config object some Icechunk writers create
+ *     for cheap HTTP-only discovery (data.source.coop serves this with
+ *     permissive CORS, tagged `x-amz-meta-ic_file_type: repo-info`).
+ *  2. `<url>/refs/branch.main/ref.json` — the `main` branch ref pointer,
+ *     which the Icechunk storage spec guarantees for any repo with a default
+ *     branch, independent of writer version or the `repo` marker above.
+ * Both use GET rather than HEAD: some static-asset hosts (e.g. a Cloudflare
+ * Worker fronting an R2 bucket) only implement GET and error/reject on HEAD,
+ * which would otherwise make a real Icechunk repo look like a miss (issue
+ * #62). Any network/CORS error (or a genuine 404 on a plain Zarr store)
+ * returns false, falling back to the Zarr path. */
+export async function hasIcechunkRepoConfig(url: string): Promise<boolean> {
   const base = url.split("?")[0]!.replace(/\/+$/, "");
-  try {
-    const res = await fetch(`${base}/repo`, { method: "HEAD" });
-    log.debug(`icechunk repo probe ${base}/repo → ${res.status}`);
-    return res.ok;
-  } catch (err) {
-    log.debug(`icechunk repo probe ${base}/repo failed`, err);
-    return false;
-  }
+  const probe = async (path: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${base}/${path}`);
+      log.debug(`icechunk layout probe ${base}/${path} → ${res.status}`);
+      return res.ok;
+    } catch (err) {
+      log.debug(`icechunk layout probe ${base}/${path} failed`, err);
+      return false;
+    }
+  };
+  return (await probe("repo")) || (await probe("refs/branch.main/ref.json"));
 }
 
 /** Open an Icechunk repo at `url` as a zarrita-readable store.
