@@ -81,17 +81,39 @@ export function mercatorBounds(
   ];
 }
 
-/** Affine in a projected CRS (metres) + its WKT2 → lng/lat bbox. Reprojects the
- * densified footprint (so curved projected edges, e.g. Lambert Conformal Conic,
- * are captured — not just the four corners) via the same proj4/`parseWkt` path
- * the render layer uses. Returns `null` on any parse/transform failure. */
+/** Affine in a projected CRS + a source→[lng,lat] projection fn → lng/lat bbox.
+ * Reprojects the DENSIFIED footprint (so curved projected edges, e.g. Albers or
+ * Lambert Conformal Conic, are captured — not just the four corners). Returns
+ * `null` on malformed input or a non-finite/throwing projection. Shared by
+ * {@link projectedBounds} (WKT path) and callers that already hold a proj4
+ * converter (e.g. the multiscale-grid profile's resolved CRS). */
+export function boundsFromProjection(
+  transform: readonly number[],
+  shape: readonly number[],
+  project: (x: number, y: number) => [number, number],
+): LngLatBounds | null {
+  const c = corners(transform, shape);
+  if (!c) return null;
+  try {
+    const [w, s, e, n] = transformBounds(project, c.minX, c.minY, c.maxX, c.maxY, {
+      densifyPts: 21,
+    });
+    if (![w, s, e, n].every(Number.isFinite)) return null;
+    return [w, s, e, n];
+  } catch {
+    return null;
+  }
+}
+
+/** Affine in a projected CRS (metres) + its WKT2 → lng/lat bbox, via the same
+ * proj4/`parseWkt` path the render layer uses. Returns `null` on any parse
+ * failure. Thin wrapper over {@link boundsFromProjection}. */
 export function projectedBounds(
   transform: readonly number[],
   shape: readonly number[],
   wkt2: string,
 ): LngLatBounds | null {
-  const c = corners(transform, shape);
-  if (!c || !wkt2) return null;
+  if (!wkt2) return null;
   try {
     // `parseWkt` yields a wkt-parser def object; proj4's typings don't cover it
     // (the render layer does the same cast). `.forward(..., false)` keeps native
@@ -102,16 +124,7 @@ export function projectedBounds(
     );
     const project = (x: number, y: number): [number, number] =>
       converter.forward([x, y], false) as [number, number];
-    const [w, s, e, n] = transformBounds(
-      project,
-      c.minX,
-      c.minY,
-      c.maxX,
-      c.maxY,
-      { densifyPts: 21 },
-    );
-    if (![w, s, e, n].every(Number.isFinite)) return null;
-    return [w, s, e, n];
+    return boundsFromProjection(transform, shape, project);
   } catch {
     return null;
   }
