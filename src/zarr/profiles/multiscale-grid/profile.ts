@@ -72,6 +72,16 @@ function lngLatToSourceCrs(p: Pyramid, lng: number, lat: number): [number, numbe
   return p.crs ? p.crs.fromLngLat(lng, lat) : null;
 }
 
+/** Lng/lat extent of a pyramid's default variable (finest level), or null.
+ * Used to open the camera on the data (regional stores like the CONUS CDL would
+ * otherwise open at world extent, below the coarsest level's zoom gate → blank
+ * until the user zooms in). */
+function defaultVarBounds(p: Pyramid): LngLatBounds | null {
+  const v = p.variables.find((x) => x.name === "NDVI") ?? p.variables[0];
+  const layout = v?.metadata.multiscales.layout[0];
+  return layout ? levelBounds(p, layout["spatial:transform"], layout["spatial:shape"]) : null;
+}
+
 /** Lng/lat bbox of a level's affine + shape, dispatched on the pyramid CRS:
  * geographic (degrees) / 3857 (closed-form mercator) / arbitrary projected
  * (`boundsFromProjection` via the resolved converters). */
@@ -395,7 +405,12 @@ export const multiscaleGridProfile: ZarrProfile<
     for (const [name, idx] of Object.entries(s.dimIndices)) out[`dim.${name}`] = String(idx);
     return out;
   },
-  initialBounds: () => [-180, -85.0511, 180, 85.0511],
+  // Open on the data extent (finest level of the finest pyramid) so a regional
+  // store (e.g. CONUS CDL) lands zoomed to its data — above the coarsest level's
+  // load gate — rather than at world view where the pyramid gate blanks it.
+  // Global stores' data bounds ≈ world, so their opening view is unchanged.
+  initialBounds: (ctx) =>
+    defaultVarBounds(ctx.pyramids[0]!) ?? [-180, -85.0511, 180, 85.0511],
 
   // Data extent (any level covers the same area) for the intro fly-in. Dispatched
   // on the selected pyramid's CRS: geographic (degrees) / EPSG:3857 (closed form)
