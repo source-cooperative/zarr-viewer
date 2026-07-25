@@ -155,11 +155,11 @@ export type ZarrProfile<
   /** Number of pyramid levels for a multiscale store, used by the level badge.
    * Return `null` (or omit) for single-level / non-multiscale stores so the
    * badge shows no level. */
-  pyramidLevelCount?: (ctx: Ctx) => number | null;
+  pyramidLevelCount?: (ctx: Ctx, state: S) => number | null;
   /** Downsample factor per level (displayIndex order: index 0 = coarsest level,
    * index N-1 = finest = 1). When provided, the badge also shows the scale ratio
    * (e.g. "1:4") for the current level. Omit for profiles that don't expose this. */
-  pyramidLevelDownsamples?: (ctx: Ctx) => number[] | null;
+  pyramidLevelDownsamples?: (ctx: Ctx, state: S) => number[] | null;
   computeAutoStats?: (args: {
     ctx: Ctx;
     state: S;

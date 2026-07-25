@@ -694,16 +694,18 @@ export default function App() {
   // Tell the pyramid badge how many levels this store has (null = single-level/
   // non-multiscale → no level shown). Reset on store/profile change.
   useEffect(() => {
-    if (!profile || !profileCtx) {
+    if (!profile || !profileCtx || !profileState) {
       tileActivity.reset();
       return;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = profileState as any;
     tileActivity.setPyramid(
-      profile.pyramidLevelCount?.(profileCtx) ?? null,
-      profile.pyramidLevelDownsamples?.(profileCtx) ?? null,
+      profile.pyramidLevelCount?.(profileCtx, s) ?? null,
+      profile.pyramidLevelDownsamples?.(profileCtx, s) ?? null,
     );
     return () => tileActivity.reset();
-  }, [profile, profileCtx]);
+  }, [profile, profileCtx, profileState]);
 
   const activity = useSyncExternalStore(
     tileActivity.subscribe,
