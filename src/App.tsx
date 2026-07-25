@@ -893,7 +893,9 @@ export default function App() {
               padding: "4px 8px",
               fontSize: 11,
               lineHeight: 1.4,
-              whiteSpace: "nowrap",
+              // Wrap within maxWidth (280px) rather than overflowing the panel —
+              // some labels (e.g. the CDL `crop_type` long_name) are long.
+              overflowWrap: "anywhere",
             }}
           >
             {hover.lines.map((line, i) => (
