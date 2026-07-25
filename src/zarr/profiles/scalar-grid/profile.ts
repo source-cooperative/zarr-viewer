@@ -17,7 +17,8 @@ import { createLogger } from "../../../log";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group, type OpenedStore } from "../../load-zarr";
 import { assertCodecsSupported } from "../../unsupported-codec";
-import { MultiscaleStoreError, parseMultiscaleDatasets, parseMultiscaleLayout } from "../../multiscale";
+import { attrsHaveMultiscale, MultiscaleStoreError } from "../../multiscale";
+import { childGroupPaths } from "../multiscale-grid/discovery";
 import {
   ProjectedGridStoreError,
   readProjectedSpatialRef,
@@ -573,7 +574,25 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     if (isOmeZarrAttrs(opened.group.attrs)) throw new OmeZarrStoreError();
     // A multiscale pyramid needs the multiscale-grid profile; signal the
     // chassis to switch (cheaper than probing the store up front on every load).
-    if (parseMultiscaleDatasets(opened.group.attrs) || parseMultiscaleLayout(opened.group.attrs)) throw new MultiscaleStoreError();
+    if (attrsHaveMultiscale(opened.group.attrs)) throw new MultiscaleStoreError();
+    // Nested pyramids: a `multiscales` attr on a depth-1 child group (e.g. the
+    // USDA CDL store's /10m and /30m products). Only scan a CONSOLIDATED store
+    // (child-group attrs are cached metadata reads); a plain scalar store has no
+    // child groups so this costs nothing. Must run BEFORE enumerateVariables —
+    // the CDL root holds no arrays, so enumeration would otherwise throw first.
+    const consolidated = asConsolidated(opened.store);
+    if (consolidated) {
+      for (const g of childGroupPaths(consolidated.contents())) {
+        if (signal.aborted) break;
+        let child: zarr.Group<zarr.Readable>;
+        try {
+          child = await zarr.open(opened.group.resolve(g), { kind: "group" });
+        } catch {
+          continue; // unopenable child — skip
+        }
+        if (attrsHaveMultiscale(child.attrs)) throw new MultiscaleStoreError();
+      }
+    }
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(opened.group, signal, arrays);
     if (variables.length === 0) {
