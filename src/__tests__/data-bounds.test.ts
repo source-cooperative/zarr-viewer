@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundsFromProjection,
   geographicBounds,
   mercatorBounds,
   projectedBounds,
@@ -68,5 +69,28 @@ describe("projectedBounds (WKT2 reprojection)", () => {
     const shape = [1059, 1799];
     expect(projectedBounds(transform, shape, "")).toBeNull();
     expect(projectedBounds(transform, shape, "not a wkt string")).toBeNull();
+  });
+});
+
+describe("boundsFromProjection (explicit projection fn)", () => {
+  it("with an identity projection matches geographicBounds", () => {
+    const transform = [0.25, 0, -10, 0, -0.25, 50];
+    const shape = [200, 400];
+    const identity = (x: number, y: number): [number, number] => [x, y];
+    expect(boundsFromProjection(transform, shape, identity)).toEqual(
+      geographicBounds(transform, shape),
+    );
+  });
+
+  it("returns null on a malformed transform/shape", () => {
+    const identity = (x: number, y: number): [number, number] => [x, y];
+    expect(boundsFromProjection([0.25, 0, -10], [200, 400], identity)).toBeNull();
+  });
+
+  it("returns null when the projection throws", () => {
+    const boom = (): [number, number] => {
+      throw new Error("nope");
+    };
+    expect(boundsFromProjection([1, 0, 0, 0, -1, 10], [10, 10], boom)).toBeNull();
   });
 });

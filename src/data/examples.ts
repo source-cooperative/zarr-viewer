@@ -195,6 +195,25 @@ export const EXAMPLES: Example[] = [
       rescale: "0,30",
     },
   },
+  // USDA Cropland Data Layer — a NESTED multiscale pyramid: the root group has
+  // no `multiscales`; instead the `/10m` and `/30m` product groups each carry
+  // their own `{layout}` pyramid (zarr-conventions v0.1). The multiscale-grid
+  // profile discovers both (Resolution picker), scrubs the annual layers (`year`
+  // slider), and — since the CRS is EPSG:5070 (CONUS Albers, projected, not
+  // 3857) — resolves it and reprojects on the fly. `crop_type` is a categorical
+  // land-cover class code, so a continuous colormap is only an approximation.
+  {
+    title: "USDA Cropland Data Layer (nested multiscale, CONUS 10 m/30 m)",
+    url: "https://data.source.coop/chill/usda-cropland-data-layer/v0.1.0.icechunk",
+    params: {
+      // CONUS view (above the coarsest level's load gate).
+      lng: "-96",
+      lat: "38",
+      zoom: "4",
+      colormap: "viridis",
+      rescale: "0,255",
+    },
+  },
   {
     title: "IDR — idr0033A / BR00109990_C2 (Cell Painting, OME-Zarr)",
     url: "https://livingobjects.ebi.ac.uk/idr/zarr/v0.5/idr0033A/BR00109990_C2.zarr",

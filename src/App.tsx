@@ -694,16 +694,18 @@ export default function App() {
   // Tell the pyramid badge how many levels this store has (null = single-level/
   // non-multiscale → no level shown). Reset on store/profile change.
   useEffect(() => {
-    if (!profile || !profileCtx) {
+    if (!profile || !profileCtx || !profileState) {
       tileActivity.reset();
       return;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const s = profileState as any;
     tileActivity.setPyramid(
-      profile.pyramidLevelCount?.(profileCtx) ?? null,
-      profile.pyramidLevelDownsamples?.(profileCtx) ?? null,
+      profile.pyramidLevelCount?.(profileCtx, s) ?? null,
+      profile.pyramidLevelDownsamples?.(profileCtx, s) ?? null,
     );
     return () => tileActivity.reset();
-  }, [profile, profileCtx]);
+  }, [profile, profileCtx, profileState]);
 
   const activity = useSyncExternalStore(
     tileActivity.subscribe,
@@ -891,7 +893,9 @@ export default function App() {
               padding: "4px 8px",
               fontSize: 11,
               lineHeight: 1.4,
-              whiteSpace: "nowrap",
+              // Wrap within maxWidth (280px) rather than overflowing the panel —
+              // some labels (e.g. the CDL `crop_type` long_name) are long.
+              overflowWrap: "anywhere",
             }}
           >
             {hover.lines.map((line, i) => (
