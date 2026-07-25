@@ -17,7 +17,7 @@ import { createLogger } from "../../../log";
 import { bytesPerElement, spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group, type OpenedStore } from "../../load-zarr";
 import { assertCodecsSupported } from "../../unsupported-codec";
-import { MultiscaleStoreError, parseMultiscaleDatasets } from "../../multiscale";
+import { MultiscaleStoreError, parseMultiscaleDatasets, parseMultiscaleLayout } from "../../multiscale";
 import {
   ProjectedGridStoreError,
   readProjectedSpatialRef,
@@ -76,7 +76,7 @@ function joinPath(group: string, leaf: string): string {
   return group ? `${group}/${leaf}` : leaf;
 }
 
-function spatialPair(
+export function spatialPair(
   dims: readonly (string | null)[] | undefined,
 ): { lat: string; lon: string } | null {
   if (!Array.isArray(dims) || dims.length < 2) return null;
@@ -573,7 +573,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     if (isOmeZarrAttrs(opened.group.attrs)) throw new OmeZarrStoreError();
     // A multiscale pyramid needs the multiscale-grid profile; signal the
     // chassis to switch (cheaper than probing the store up front on every load).
-    if (parseMultiscaleDatasets(opened.group.attrs)) throw new MultiscaleStoreError();
+    if (parseMultiscaleDatasets(opened.group.attrs) || parseMultiscaleLayout(opened.group.attrs)) throw new MultiscaleStoreError();
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(opened.group, signal, arrays);
     if (variables.length === 0) {
