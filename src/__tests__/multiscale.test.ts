@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  attrsHaveMultiscale,
   buildGeoZarrMetadata,
   buildLayoutGeoZarrMetadata,
   parseMultiscaleDatasets,
@@ -163,5 +164,58 @@ describe("parseMultiscaleLayout", () => {
     expect(parseMultiscaleLayout({ ...base, multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,Infinity], "spatial:shape": [3600,7200] }] } })).toBeNull();
     // empty-string CRS with no wkt2
     expect(parseMultiscaleLayout({ ...base, "proj:code": "" })).toBeNull();
+  });
+});
+
+describe("buildLayoutGeoZarrMetadata — subgroupPrefix + asset '.'", () => {
+  // A CDL-style pyramid rooted at a child group: finest level is the group
+  // itself (asset "."), coarser levels are downsample-factor subgroups.
+  const layout = parseMultiscaleLayout({
+    "spatial:dimensions": ["y", "x"],
+    "proj:code": "EPSG:5070",
+    multiscales: {
+      layout: [
+        { asset: ".", "spatial:transform": [10, 0, -2356095, 0, -10, 3172605], "spatial:shape": [316295, 480509] },
+        { asset: "2x", "spatial:transform": [20, 0, -2356095, 0, -20, 3172605], "spatial:shape": [158148, 240255] },
+      ],
+    },
+  })!;
+
+  it("prefixes assets with the subgroup and maps '.' to the group root", () => {
+    const meta = buildLayoutGeoZarrMetadata({ layout, variable: "crop_type", subgroupPrefix: "10m" });
+    expect(meta.multiscales.layout.map((l) => l.asset)).toEqual([
+      "10m/crop_type",
+      "10m/2x/crop_type",
+    ]);
+    expect(meta["proj:code"]).toBe("EPSG:5070");
+  });
+
+  it("keeps the store-root behavior when no prefix is given", () => {
+    const rootLayout = parseMultiscaleLayout({
+      "spatial:dimensions": ["latitude", "longitude"],
+      "proj:code": "EPSG:4326",
+      multiscales: { layout: [{ asset: "0", "spatial:transform": [0.05,0,-180,0,-0.05,90], "spatial:shape": [3600,7200] }] },
+    })!;
+    const meta = buildLayoutGeoZarrMetadata({ layout: rootLayout, variable: "NDVI" });
+    expect(meta.multiscales.layout.map((l) => l.asset)).toEqual(["0/NDVI"]);
+  });
+});
+
+describe("attrsHaveMultiscale", () => {
+  it("is true for the native {layout} form", () => {
+    expect(attrsHaveMultiscale({
+      "spatial:dimensions": ["y", "x"],
+      "proj:code": "EPSG:5070",
+      multiscales: { layout: [{ asset: ".", "spatial:transform": [10,0,0,0,-10,0], "spatial:shape": [10, 10] }] },
+    })).toBe(true);
+  });
+  it("is true for the legacy CF {datasets} form", () => {
+    expect(attrsHaveMultiscale({ multiscales: [{ datasets: [{ path: "1x" }] }] })).toBe(true);
+  });
+  it("is false for a plain group / OME-ish / empty / null", () => {
+    expect(attrsHaveMultiscale({ "spatial:transform": [1,0,0,0,1,0] })).toBe(false);
+    expect(attrsHaveMultiscale({ multiscales: { layout: [] } })).toBe(false);
+    expect(attrsHaveMultiscale({})).toBe(false);
+    expect(attrsHaveMultiscale(null)).toBe(false);
   });
 });

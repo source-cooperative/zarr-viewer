@@ -157,23 +157,45 @@ export function buildGeoZarrMetadata(opts: {
 
 /** Build deck.gl-zarr metadata from a native `zarr-conventions/multiscales`
  * layout for one data variable. The store's `layout[].asset` names the level
- * GROUP (e.g. "0"); deck.gl-zarr opens `asset` as an ARRAY, so rewrite it to
- * "<level>/<variable>" (e.g. "0/NDVI"). Levels stay finest-first. */
+ * GROUP (e.g. "0", or "." for the pyramid's own root); deck.gl-zarr opens the
+ * emitted `asset` as an ARRAY, so rewrite each to the data array's full path.
+ *
+ * `subgroupPrefix` roots the pyramid at a child group (e.g. "10m") when the
+ * `multiscales` attr lives on a subgroup rather than the store root; "" (the
+ * default) keeps the store-root behavior. So `{prefix:"10m", asset:".",
+ * variable:"crop_type"}` → `"10m/crop_type"`, `{prefix:"10m", asset:"2x"}` →
+ * `"10m/2x/crop_type"`, and the root case `{asset:"0", variable:"NDVI"}` →
+ * `"0/NDVI"` is unchanged. `node` stays the store root, so assets are full
+ * paths. Levels stay finest-first. */
 export function buildLayoutGeoZarrMetadata(opts: {
   layout: MultiscaleLayout;
   variable: string;
+  /** Child-group path the pyramid is rooted at, or "" for the store root. */
+  subgroupPrefix?: string;
 }): GeoZarrMetadata {
-  const { layout, variable } = opts;
+  const { layout, variable, subgroupPrefix = "" } = opts;
   const crs = layout.crs.code ? { "proj:code": layout.crs.code } : { "proj:wkt2": layout.crs.wkt2 };
   return {
     "spatial:dimensions": layout.dims,
     ...crs,
     multiscales: {
-      layout: layout.levels.map((lvl) => ({
-        asset: `${lvl.asset}/${variable}`,
-        "spatial:transform": lvl["spatial:transform"],
-        "spatial:shape": lvl["spatial:shape"],
-      })),
+      layout: layout.levels.map((lvl) => {
+        const levelPath = lvl.asset === "." ? "" : lvl.asset;
+        const asset = [subgroupPrefix, levelPath, variable].filter(Boolean).join("/");
+        return {
+          asset,
+          "spatial:transform": lvl["spatial:transform"],
+          "spatial:shape": lvl["spatial:shape"],
+        };
+      }),
     },
   };
+}
+
+/** True when a group's attrs declare a multiscale pyramid — in either the native
+ * `{ layout }` form ({@link parseMultiscaleLayout}) or the legacy CF
+ * `[{ datasets }]` form ({@link parseMultiscaleDatasets}). Pure; used to detect a
+ * pyramid on the store root OR on a child group (nested pyramids). */
+export function attrsHaveMultiscale(attrs: unknown): boolean {
+  return parseMultiscaleLayout(attrs) !== null || parseMultiscaleDatasets(attrs) !== null;
 }
