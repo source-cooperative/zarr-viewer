@@ -23,6 +23,7 @@
     "@mattnucc/gribberish": "^1.5.0",
     "@mattnucc/gribberish-wasm32-wasi": "^1.5.0",
     "@petamoriken/float16": "^3.9.3",
+    "@sentry/react": "^10.69.0",
     "icechunk-js": "^0.6.0",
     "maplibre-gl": "^5.24.0",
     "numcodecs": "0.3.2",
@@ -33,6 +34,7 @@
     "zarrita": "^0.7.3"
   },
   "devDependencies": {
+    "@sentry/vite-plugin": "^5.4.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -48,6 +50,9 @@
   "pnpm": {
     "overrides": {
       "undici": "^7.28.0"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@sentry/cli"
+    ]
   }
 }
