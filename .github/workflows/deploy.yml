@@ -31,6 +31,14 @@ jobs:
       - run: pnpm build
         env:
           BASE_PATH: /zarr-viewer/
+          # Sentry error monitoring. DSN is public (write-only) so it's a repo
+          # variable; the auth token (source-map upload) is a secret. Upload is
+          # skipped automatically if SENTRY_AUTH_TOKEN is unset (see vite.config).
+          VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
