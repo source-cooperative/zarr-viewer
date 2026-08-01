@@ -1,8 +1,9 @@
-import { DebouncedSlider } from "../../../components/DebouncedSlider";
+import { DebouncedSlider, ValueBadge } from "../../../components/DebouncedSlider";
 import { PlaybackSlider } from "../../../components/PlaybackSlider";
 import { StepperRange } from "../../../components/StepperRange";
 import { dimTint, tintLabelStyle } from "../../dim-colors";
 import type { ProfileControlsProps } from "../../profile";
+import { localTimeTooltip } from "./cf-coords";
 import { defaultDimIndices, type ScalarGridContext, type ScalarGridState } from "./types";
 
 export function ScalarGridControls({
@@ -167,6 +168,7 @@ function LiveSlider({
   // Group, not a <label>: a <label> would associate with StepperRange's first
   // button and double-fire its clicks in some embedded webviews (see
   // PlaybackSlider for the full explanation).
+  const display = formatValue(value);
   return (
     <div role="group" aria-label={label} style={tintLabelStyle(tint)}>
       <span
@@ -174,9 +176,7 @@ function LiveSlider({
         style={{ display: "flex", justifyContent: "space-between" }}
       >
         <span>{label}</span>
-        <span className="mono" style={{ textTransform: "none" }}>
-          {formatValue(value)}
-        </span>
+        <ValueBadge display={display} localTooltip={localTimeTooltip(display)} />
       </span>
       <StepperRange value={value} min={min} max={max} onChange={onChange} />
     </div>
