@@ -119,6 +119,62 @@ export function parseMultiscaleLayout(rootAttrs: unknown): MultiscaleLayout | nu
   return { levels, dims, crs };
 }
 
+/** Read the legacy CF `multiscales: [{ datasets: [...] }]` ARRAY form when each
+ * dataset is ENRICHED with a per-level `spatial:transform` + `spatial:shape`
+ * (e.g. the FTW global-predictions store: a GeoZarr-style pyramid written under
+ * the `datasets` key, finest level `path: "."`). This is structurally a layout
+ * pyramid, so it's translated to the same {@link MultiscaleLayout} the native
+ * `{ layout }` form yields — routing it to `prepareLayoutPyramid` (multi-dim,
+ * `.`-rooted, arbitrarily-named variables) instead of the 2-D CF branch.
+ *
+ * Returns null when it isn't the datasets ARRAY form, when any dataset lacks a
+ * per-level transform/shape (the bare `{path}` CF form, e.g. Meta CHM, which
+ * still belongs to the CF branch — see {@link parseMultiscaleDatasets}), or when
+ * the root lacks `spatial:dimensions`/CRS. Levels are returned FINEST-FIRST
+ * (smallest pixel), matching {@link parseMultiscaleLayout}. */
+export function parseMultiscaleDatasetsLayout(rootAttrs: unknown): MultiscaleLayout | null {
+  if (typeof rootAttrs !== "object" || rootAttrs === null) return null;
+  const a = rootAttrs as Record<string, unknown>;
+  const ms = a.multiscales;
+  // Must be the ARRAY form { datasets } — the native { layout } form is an object.
+  if (!Array.isArray(ms) || ms.length === 0) return null;
+  const datasets = (ms[0] as { datasets?: unknown }).datasets;
+  if (!Array.isArray(datasets) || datasets.length === 0) return null;
+
+  const levels: MultiscaleLayoutLevel[] = [];
+  for (const item of datasets) {
+    if (typeof item !== "object" || item === null) return null;
+    const it = item as Record<string, unknown>;
+    const asset = it.path;
+    const transform = asAffine6(it["spatial:transform"]);
+    const shape = asShape2(it["spatial:shape"]);
+    // Bare `{path}` datasets (no inline transform/shape) belong to the CF branch.
+    if (typeof asset !== "string" || !transform || !shape) return null;
+    levels.push({ asset, "spatial:transform": transform, "spatial:shape": shape });
+  }
+  // Finest-first (smallest |pixel size|); stored order is usually finest-first
+  // already, but a coarsest-first writer must not invert the pyramid.
+  levels.sort(
+    (p, q) => Math.abs(p["spatial:transform"][0]) - Math.abs(q["spatial:transform"][0]),
+  );
+
+  const dimsRaw = a["spatial:dimensions"];
+  if (!Array.isArray(dimsRaw) || dimsRaw.length < 2) return null;
+  const yName = dimsRaw[dimsRaw.length - 2];
+  const xName = dimsRaw[dimsRaw.length - 1];
+  if (typeof yName !== "string" || typeof xName !== "string") return null;
+  const dims: [string, string] = [yName, xName];
+
+  const crs: { code?: string; wkt2?: string } = {};
+  const code = a["proj:code"];
+  const wkt2 = a["proj:wkt2"];
+  if (typeof code === "string" && code) crs.code = code;
+  else if (typeof wkt2 === "string" && wkt2) crs.wkt2 = wkt2;
+  else return null;
+
+  return { levels, dims, crs };
+}
+
 /** GDAL `GeoTransform` `[ox, px, rx, oy, ry, py]` → developmentseed
  * `spatial:transform` `[px, rx, ox, ry, py, oy]` (scaleX, 0, translateX,
  * 0, scaleY, translateY). */
