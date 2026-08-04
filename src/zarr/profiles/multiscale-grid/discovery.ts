@@ -10,6 +10,7 @@ import {
   attrsHaveMultiscale,
   type MultiscaleLayout,
   parseMultiscaleDatasets,
+  parseMultiscaleDatasetsLayout,
   parseMultiscaleLayout,
 } from "../../multiscale";
 
@@ -82,7 +83,11 @@ async function buildSource(
   prefix: string,
   attrs: unknown,
 ): Promise<PyramidSource> {
-  const layout = parseMultiscaleLayout(attrs);
+  // Native `{layout}` first, then the enriched CF `datasets` array (per-level
+  // transform/shape) — both are layout pyramids. Only the bare `{path}` CF form
+  // (no inline transform, e.g. Meta CHM) falls through to the CF `datasets`
+  // branch, which georeferences via each level's `spatial_ref` GeoTransform.
+  const layout = parseMultiscaleLayout(attrs) ?? parseMultiscaleDatasetsLayout(attrs);
   const datasets = layout ? null : parseMultiscaleDatasets(attrs);
   const crsCode = layout?.crs.code ?? groupCrsCode(attrs);
   const crsWkt = layout?.crs.wkt2 ?? (await readCrsWkt(root, prefix));

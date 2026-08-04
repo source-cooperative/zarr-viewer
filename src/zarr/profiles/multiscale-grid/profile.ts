@@ -114,21 +114,38 @@ function levelGroupPath(prefix: string, asset: string): string {
  * the array names + their leading (non-spatial) dims. `finestGroupPath` is the
  * finest level's full group path (e.g. "0" at root, or "10m" for a nested
  * pyramid whose finest asset is "."). */
-async function enumerateLayoutVariables(
+export async function enumerateLayoutVariables(
   group: zarr.Group<zarr.Readable>,
   finestGroupPath: string,
   contents: { path: string; kind: "array" | "group" }[],
 ): Promise<{ name: string; arr: zarr.Array<zarr.DataType, zarr.Readable>; dims: { name: string; size: number }[] }[]> {
+  // `finestGroupPath === ""` means the pyramid is rooted at the store root
+  // (finest asset "."), so its arrays are the root-level nodes (no "/"). A
+  // non-empty path scopes to `<path>/<name>` children.
+  const isRoot = finestGroupPath === "";
   const prefix = `${finestGroupPath}/`;
   const names = contents
     .filter((e) => e.kind === "array")
     .map((e) => e.path.replace(/^\/+/, ""))
-    .filter((p) => p.startsWith(prefix) && !p.slice(prefix.length).includes("/"))
-    .map((p) => p.slice(prefix.length))
+    .filter((p) =>
+      isRoot
+        ? !p.includes("/")
+        : p.startsWith(prefix) && !p.slice(prefix.length).includes("/"),
+    )
+    .map((p) => (isRoot ? p : p.slice(prefix.length)))
     .filter((n) => !COORD_AUX.has(n));
   const out: { name: string; arr: zarr.Array<zarr.DataType, zarr.Readable>; dims: { name: string; size: number }[] }[] = [];
   for (const name of names) {
-    const arr = await zarr.open(group.resolve(`${finestGroupPath}/${name}`), { kind: "array" });
+    const path = isRoot ? name : `${finestGroupPath}/${name}`;
+    let arr: zarr.Array<zarr.DataType, zarr.Readable>;
+    try {
+      arr = await zarr.open(group.resolve(path), { kind: "array" });
+    } catch (err) {
+      // A non-data node zarrita can't open (e.g. the FTW store's `band`
+      // fixed_length_utf32 coord array) must not abort enumeration.
+      log.debug(`enumerateLayoutVariables: skip "${path}" (open failed)`, err);
+      continue;
+    }
     const dimNames = arr.dimensionNames;
     if (!spatialPair(dimNames)) continue; // not a spatial data variable
     const lead = (dimNames ?? []).slice(0, arr.shape.length - 2);
@@ -176,7 +193,9 @@ async function prepareLayoutPyramid(
     for (const d of v.dims) {
       if (signal.aborted) break;
       if (!dimLabel[d.name]) {
-        dimLabel[d.name] = await buildDimLabel(opened.group, `${finestGroup}/${d.name}`, d.size);
+        // finestGroup "" (a "."-rooted pyramid) → coord array is at the root.
+        const coordPath = finestGroup ? `${finestGroup}/${d.name}` : d.name;
+        dimLabel[d.name] = await buildDimLabel(opened.group, coordPath, d.size);
       }
     }
   }

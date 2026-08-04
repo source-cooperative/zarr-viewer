@@ -4,6 +4,7 @@ import {
   buildGeoZarrMetadata,
   buildLayoutGeoZarrMetadata,
   parseMultiscaleDatasets,
+  parseMultiscaleDatasetsLayout,
   parseMultiscaleLayout,
 } from "../zarr/multiscale";
 
@@ -31,6 +32,58 @@ describe("parseMultiscaleDatasets", () => {
     expect(parseMultiscaleDatasets({ multiscales: [{ datasets: [] }] })).toBeNull();
     expect(parseMultiscaleDatasets(null)).toBeNull();
     expect(parseMultiscaleDatasets("nope")).toBeNull();
+  });
+});
+
+describe("parseMultiscaleDatasetsLayout", () => {
+  // The FTW global-predictions store: a GeoZarr-style pyramid expressed in the
+  // legacy CF `datasets` ARRAY key, but each dataset carries per-level
+  // `spatial:transform` + `spatial:shape` (like a layout level). Finest is the
+  // pyramid root, `path: "."`.
+  const ftwAttrs = {
+    "spatial:dimensions": ["y", "x"],
+    "proj:code": "EPSG:4326",
+    multiscales: [
+      {
+        tile_matrix_set: "WGS84Quad",
+        resampling_method: "average",
+        datasets: [
+          { path: ".", factor: 1, crs: "EPSG:4326", "spatial:transform": [8.9e-5, 0, -180, 0, -8.9e-5, 83.7], "spatial:shape": [1566049, 4007517] },
+          { path: "2x", factor: 2, crs: "EPSG:4326", "spatial:transform": [1.79e-4, 0, -180, 0, -1.79e-4, 83.7], "spatial:shape": [783025, 2003759] },
+        ],
+      },
+    ],
+  };
+
+  it("converts an enriched CF datasets array (per-level transform+shape) to a layout", () => {
+    const out = parseMultiscaleDatasetsLayout(ftwAttrs)!;
+    expect(out.levels.map((l) => l.asset)).toEqual([".", "2x"]);
+    expect(out.levels[0]!["spatial:shape"]).toEqual([1566049, 4007517]);
+    expect(out.levels[0]!["spatial:transform"]).toEqual([8.9e-5, 0, -180, 0, -8.9e-5, 83.7]);
+    expect(out.dims).toEqual(["y", "x"]);
+    expect(out.crs).toEqual({ code: "EPSG:4326" });
+  });
+
+  it("orders levels finest-first (smallest pixel) regardless of stored order", () => {
+    const coarsestFirst = {
+      ...ftwAttrs,
+      multiscales: [{ datasets: [...ftwAttrs.multiscales[0]!.datasets].reverse() }],
+    };
+    const out = parseMultiscaleDatasetsLayout(coarsestFirst)!;
+    expect(out.levels.map((l) => l.asset)).toEqual([".", "2x"]);
+  });
+
+  it("returns null for the bare CF datasets form (no per-level transform) → CF branch", () => {
+    expect(
+      parseMultiscaleDatasetsLayout({ multiscales: [{ datasets: [{ path: "1x" }, { path: "2x" }] }] }),
+    ).toBeNull();
+  });
+
+  it("returns null for the native {layout} object form and plain/empty/null", () => {
+    expect(parseMultiscaleDatasetsLayout({ multiscales: { layout: [{ asset: "0" }] } })).toBeNull();
+    expect(parseMultiscaleDatasetsLayout({})).toBeNull();
+    expect(parseMultiscaleDatasetsLayout({ multiscales: [] })).toBeNull();
+    expect(parseMultiscaleDatasetsLayout(null)).toBeNull();
   });
 });
 
