@@ -1,0 +1,29 @@
+name: Cloudflare Preview
+
+# Thin caller for the org-wide preview workflow in source-cooperative/.github.
+# Builds this app and publishes it as a per-PR Worker, torn down on close.
+#
+# BASE_PATH is intentionally not set here: previews are served from the root of
+# a workers.dev hostname, unlike the GitHub Pages deploy which needs
+# /zarr-viewer/. vite.config.ts already defaults to "/" when BASE_PATH is unset.
+on:
+  pull_request:
+    # `closed` is required — it is what triggers the teardown job in the
+    # shared workflow. Without it, preview Workers are never deleted.
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  preview:
+    # TODO: switch to @main once source-cooperative/.github#2 merges. Pointing
+    # at the branch so this PR can exercise the workflow before it lands.
+    uses: source-cooperative/.github/.github/workflows/cloudflare-preview.yml@add-cloudflare-preview
+    # Granted here because a called workflow can only maintain or reduce the
+    # caller's token permissions, never elevate them.
+    permissions:
+      contents: read
+      pull-requests: write
+    # Mapped explicitly rather than `secrets: inherit` so the job gets only
+    # these two, not every secret this repo holds.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
