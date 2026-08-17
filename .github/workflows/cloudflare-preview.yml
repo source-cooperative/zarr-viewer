@@ -14,9 +14,7 @@ on:
 
 jobs:
   preview:
-    # TODO: switch to @main once source-cooperative/.github#2 merges. Pointing
-    # at the branch so this PR can exercise the workflow before it lands.
-    uses: source-cooperative/.github/.github/workflows/cloudflare-preview.yml@add-cloudflare-preview
+    uses: source-cooperative/.github/.github/workflows/cloudflare-preview.yml@main
     # Granted here because a called workflow can only maintain or reduce the
     # caller's token permissions, never elevate them.
     permissions:
