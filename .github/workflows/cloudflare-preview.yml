@@ -1,16 +1,15 @@
 name: Cloudflare Preview
 
 # Thin caller for the org-wide preview workflow in source-cooperative/.github.
-# Builds this app and publishes it as a per-PR Worker, torn down on close.
+# Publishes each PR as a version of this repo's preview Worker, reachable at a
+# stable pr-<n> alias. No `with:` block — package manager, build command, and
+# output directory are all detected. See that repo's README.
 #
-# BASE_PATH is intentionally not set here: previews are served from the root of
-# a workers.dev hostname, unlike the GitHub Pages deploy which needs
-# /zarr-viewer/. vite.config.ts already defaults to "/" when BASE_PATH is unset.
+# No `closed` trigger: preview aliases cannot be deleted, so there is nothing to
+# tear down. Previews persist until evicted at 1000 per Worker.
 on:
   pull_request:
-    # `closed` is required — it is what triggers the teardown job in the
-    # shared workflow. Without it, preview Workers are never deleted.
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
 
 jobs:
   preview:
