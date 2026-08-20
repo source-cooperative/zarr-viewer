@@ -296,6 +296,15 @@ export default function App() {
     setError(null);
     setIcechunk(null);
     if (!state.url || !profile) return;
+    // Normalize the URL (e.g. source.coop → data.source.coop) when it arrives
+    // directly via the ?url= query param, which bypasses the handleLoad path
+    // that already normalizes. Update the browser URL so the canonical form is
+    // bookmarkable, then let the re-render load from the normalized URL.
+    const normalized = normalizeStoreUrl(state.url);
+    if (normalized !== state.url) {
+      update({ url: normalized });
+      return;
+    }
     const ctrl = new AbortController();
     log.info(`load: profile "${profile.id}" url=${state.url}`);
     (async () => {
