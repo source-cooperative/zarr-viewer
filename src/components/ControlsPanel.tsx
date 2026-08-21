@@ -140,10 +140,11 @@ export function ControlsPanel({
         Math.abs(a - currentHeight) <= Math.abs(b - currentHeight) ? a : b,
       );
       const newIndex = snaps.indexOf(nearest) as 0 | 1 | 2;
+      // Restore transition before setSnapIndex so the useEffect-driven height
+      // update animates from the dragged position to the snap target.
       panel.style.transition = "";
-      panel.style.height = `${nearest}px`;
-      setSnapIndex(newIndex);
       dragRef.current = null;
+      setSnapIndex(newIndex);
     };
 
     handle.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -157,13 +158,22 @@ export function ControlsPanel({
     };
   }, [isMobile]);
 
-  const sheetHeight = isMobile ? getSnaps()[snapIndex] : undefined;
+  // Control sheet height imperatively so React re-renders during drag don't
+  // override the in-flight panel.style.height set by onTouchMove.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (!isMobile) {
+      panel.style.height = "";
+      return;
+    }
+    panel.style.height = `${getSnaps()[snapIndex]}px`;
+  }, [isMobile, snapIndex]);
 
   return (
     <div
       className="controls-panel"
       ref={panelRef}
-      style={sheetHeight !== undefined ? { height: sheetHeight } : undefined}
     >
       <div className="sheet-handle" ref={handleRef}>
         <div className="sheet-handle-pill" />
