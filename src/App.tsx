@@ -39,7 +39,12 @@ import { installKeepMinZoomTiles } from "./render/keep-min-zoom-tiles";
 import * as tileActivity from "./render/tile-activity";
 import type { AutoStats } from "./render/stats";
 import { subscribeTileHealth } from "./zarr/tile-error";
-import { detectProfile, normalizeStoreUrl } from "./source";
+import {
+  detectProfile,
+  isSupportedStoreUrl,
+  normalizeStoreUrl,
+  UNSUPPORTED_URL_MESSAGE,
+} from "./source";
 import {
   asIcechunk,
   listIcechunkSnapshots,
@@ -296,6 +301,15 @@ export default function App() {
     setError(null);
     setIcechunk(null);
     if (!state.url || !profile) return;
+    // `?url=` is attacker-controllable via a shared link, so reject anything
+    // that isn't an absolute http(s) URL before it reaches a fetch/store sink
+    // — and before we write it back to the address bar below. See
+    // `isSupportedStoreUrl`.
+    if (!isSupportedStoreUrl(state.url)) {
+      log.warn(`refusing unsupported store url: ${state.url}`);
+      setError(UNSUPPORTED_URL_MESSAGE);
+      return;
+    }
     // Normalize the URL (e.g. source.coop → data.source.coop) when it arrives
     // directly via the ?url= query param, which bypasses the handleLoad path
     // that already normalizes. Update the browser URL so the canonical form is
@@ -662,6 +676,14 @@ export default function App() {
 
   const handleLoad = useCallback(
     (request: ExampleLoadRequest) => {
+      // Reject a pasted non-http(s) URL here rather than letting it through to
+      // the prepare effect: not writing `?url=` keeps EmptyState mounted, so
+      // the user can fix the value instead of landing on a blank map. The
+      // toast (zIndex 20) renders above EmptyState (zIndex 10).
+      if (!isSupportedStoreUrl(request.url)) {
+        setError(UNSUPPORTED_URL_MESSAGE);
+        return;
+      }
       // Current URL params win over example defaults (so a shared link
       // round-trips), then example defaults fill gaps, then the chassis
       // render fields reset. See `buildExampleLoadPatch`.
