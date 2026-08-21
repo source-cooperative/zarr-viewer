@@ -236,13 +236,64 @@ a {
   overflow-x: hidden;
   z-index: 5;
 }
+/* Sheet drag handle — hidden on desktop, shown as flex item inside mobile sheet */
+.sheet-handle {
+  display: none;
+}
+
+.sheet-handle-pill {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
 @media (max-width: 480px) {
   .controls-panel {
-    top: 8px;
-    right: 8px;
-    left: 8px;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
     width: auto;
-    max-height: calc(100vh - 16px);
+    max-height: none;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 16px rgba(44, 50, 51, 0.12);
+    transition: height 200ms ease;
+    z-index: 10;
+  }
+  .theme-dark .controls-panel {
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+  }
+  /* Inner details card: fills the sheet and scrolls its content */
+  .controls-panel > details.panel {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  /* Hide the toggle chevron — the pill handle is the affordance on mobile */
+  .controls-panel > details.panel > summary::after {
+    display: none;
+  }
+  .sheet-handle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 20px;
+    padding: 4px 0;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    touch-action: none;
   }
 }
 

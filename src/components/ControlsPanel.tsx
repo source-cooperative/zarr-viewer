@@ -1,5 +1,6 @@
 import { COLORMAP_INDEX } from "@developmentseed/deck.gl-raster/gpu-modules";
 import colormapsPngUrl from "@developmentseed/deck.gl-raster/gpu-modules/colormaps.png";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { AutoStats } from "../render/stats";
 import { percentileFromHistogram } from "../render/stats";
@@ -34,6 +35,13 @@ const COLORMAP_OPTIONS: ColormapOption[] = COLORMAP_NAMES.map((name) => ({
   label: name,
   rowIndex: (COLORMAP_INDEX as Record<string, number>)[name] ?? 0,
 }));
+
+const SNAP_COLLAPSED = 56;
+
+function getSnaps(): [number, number, number] {
+  const vh = window.innerHeight;
+  return [SNAP_COLLAPSED, Math.round(vh * 0.5), Math.round(vh * 0.9)];
+}
 
 type Props = {
   state: ViewerState;
@@ -78,19 +86,121 @@ export function ControlsPanel({
   snapshots,
 }: Props) {
   const isOpen = state.panel === "open";
+
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia("(max-width: 480px)").matches,
+  );
+  const [snapIndex, setSnapIndex] = useState<0 | 1 | 2>(() =>
+    window.matchMedia("(max-width: 480px)").matches && isOpen ? 1 : 0,
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 480px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  const cycleSnap = useCallback(() => {
+    setSnapIndex((i) => (((i + 1) % 3) as 0 | 1 | 2));
+  }, []);
+
+  useEffect(() => {
+    const handle = handleRef.current;
+    const panel = panelRef.current;
+    if (!handle || !panel || !isMobile) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      dragRef.current = { startY: touch.clientY, startHeight: panel.offsetHeight };
+      panel.style.transition = "none";
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (!dragRef.current) return;
+      const touch = e.touches[0];
+      const delta = dragRef.current.startY - touch.clientY;
+      const newHeight = Math.max(
+        SNAP_COLLAPSED,
+        Math.min(window.innerHeight * 0.95, dragRef.current.startHeight + delta),
+      );
+      panel.style.height = `${newHeight}px`;
+    };
+
+    const onTouchEnd = () => {
+      if (!dragRef.current) return;
+      const currentHeight = panel.offsetHeight;
+      const snaps = getSnaps();
+      const nearest = snaps.reduce((a, b) =>
+        Math.abs(a - currentHeight) <= Math.abs(b - currentHeight) ? a : b,
+      );
+      const newIndex = snaps.indexOf(nearest) as 0 | 1 | 2;
+      // Restore transition before setSnapIndex so the useEffect-driven height
+      // update animates from the dragged position to the snap target.
+      panel.style.transition = "";
+      dragRef.current = null;
+      setSnapIndex(newIndex);
+    };
+
+    handle.addEventListener("touchstart", onTouchStart, { passive: true });
+    handle.addEventListener("touchmove", onTouchMove, { passive: false });
+    handle.addEventListener("touchend", onTouchEnd, { passive: true });
+
+    return () => {
+      handle.removeEventListener("touchstart", onTouchStart);
+      handle.removeEventListener("touchmove", onTouchMove);
+      handle.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isMobile]);
+
+  // Control sheet height imperatively so React re-renders during drag don't
+  // override the in-flight panel.style.height set by onTouchMove.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (!isMobile) {
+      panel.style.height = "";
+      return;
+    }
+    panel.style.height = `${getSnaps()[snapIndex]}px`;
+  }, [isMobile, snapIndex]);
+
   return (
-    <div className="controls-panel">
+    <div
+      className="controls-panel"
+      ref={panelRef}
+    >
+      <div className="sheet-handle" ref={handleRef}>
+        <div className="sheet-handle-pill" />
+      </div>
       <details
         className="panel"
-        open={isOpen}
-        onToggle={(e) =>
-          update({
-            panel: (e.target as HTMLDetailsElement).open ? "open" : "closed",
-          })
-        }
+        open={isMobile ? true : isOpen}
+        onToggle={(e) => {
+          if (!isMobile) {
+            update({
+              panel: (e.target as HTMLDetailsElement).open ? "open" : "closed",
+            });
+          }
+        }}
         style={{ padding: 12 }}
       >
-        <summary style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <summary
+          style={{ display: "flex", alignItems: "center", gap: 8 }}
+          onClick={
+            isMobile
+              ? (e) => {
+                  e.preventDefault();
+                  cycleSnap();
+                }
+              : undefined
+          }
+        >
           <span className="panel-header">Options</span>
         </summary>
 
