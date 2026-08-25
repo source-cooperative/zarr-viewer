@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeFixedLengthUtf32,
+  localTimeTooltip,
   makeCfDimLabel,
 } from "../zarr/profiles/scalar-grid/cf-coords";
 
@@ -78,6 +79,31 @@ describe("makeCfDimLabel", () => {
 
   it("falls back to the index for an unparseable epoch", () => {
     expect(makeCfDimLabel("hours since not-a-date", [3], 3)(1)).toBe("1 / 2");
+  });
+});
+
+describe("localTimeTooltip", () => {
+  // Regex assertions (rather than exact strings) tolerate the narrow
+  // no-break space some ICU builds use between time and AM/PM.
+  it("converts a UTC date/time label to the given local zone", () => {
+    const result = localTimeTooltip(
+      "2023-12-02 17:00Z",
+      "America/Los_Angeles",
+      "en-US",
+    );
+    expect(result).toMatch(/^Local: Dec 2, 2023,\s*9:00\s*AM\s*PST$/);
+  });
+
+  it("crosses a date boundary when the local zone is ahead of UTC", () => {
+    const result = localTimeTooltip("2023-12-02 23:30Z", "Asia/Tokyo", "en-US");
+    expect(result).toMatch(/^Local: Dec 3, 2023,\s*8:30\s*AM\s*(JST|GMT\+9)$/);
+  });
+
+  it("returns null for non-datetime labels", () => {
+    expect(localTimeTooltip("+6 h")).toBeNull();
+    expect(localTimeTooltip("500 hPa")).toBeNull();
+    expect(localTimeTooltip("0 / 4")).toBeNull();
+    expect(localTimeTooltip("2030")).toBeNull();
   });
 });
 
