@@ -107,9 +107,6 @@ export const projectedGridProfile: ZarrProfile<
     } catch {
       // keep inner chunk
     }
-    const bundledChunkEls = firstArr.chunks
-      .slice(0, nd - 2)
-      .reduce((a, b) => a * b, 1);
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
       chunkW,
