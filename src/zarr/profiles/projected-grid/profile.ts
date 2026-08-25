@@ -107,9 +107,6 @@ export const projectedGridProfile: ZarrProfile<
     } catch {
       // keep inner chunk
     }
-    const bundledChunkEls = firstArr.chunks
-      .slice(0, nd - 2)
-      .reduce((a, b) => a * b, 1);
     const minRenderZoom = deriveMinZoom(
       metersPerPx,
       chunkW,
@@ -117,7 +114,6 @@ export const projectedGridProfile: ZarrProfile<
       bytesPerElement(firstArr.dtype),
       width,
       height,
-      bundledChunkEls,
     );
 
     // CF labels for every non-spatial dim (dates / durations / index), keyed by

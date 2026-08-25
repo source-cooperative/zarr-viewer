@@ -105,8 +105,7 @@ describe("deriveMinZoom (fetch-budget gate)", () => {
     // a single spatial chunk — zooming can't reduce the fetch, so it must render
     // at world view, NOT behind a "zoom in to load tiles" hint. The gate judges
     // the spatial plane (~3.2 MB), so the bundled step count doesn't matter.
-    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 120)).toBe(0);
-    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897, 1)).toBe(0);
+    expect(deriveMinZoom(0.2 * M_PER_DEG, 1800, 897, 2, 1800, 897)).toBe(0);
   });
 
   it("a single plane with a huge spatial footprint still defers", () => {
@@ -115,13 +114,14 @@ describe("deriveMinZoom (fetch-budget gate)", () => {
     expect(deriveMinZoom(10, 50_000, 50_000, 4, 50_000, 50_000)).toBe(12);
   });
 
-  it("bundled frames raise the gate for MULTI-chunk-spatial stores (loop path)", () => {
-    // No single-plane short-circuit (shape omitted → per-zoom loop). Each
-    // fetched chunk carries its bundled frames, so a bundled axis multiplies the
-    // per-zoom bytes and pushes the floor up vs. the unbundled gate.
-    const unbundled = deriveMinZoom(10, 256, 256, 4);
-    const bundled = deriveMinZoom(10, 256, 256, 4, undefined, undefined, 16);
-    expect(bundled).toBeGreaterThan(unbundled);
+  it("bundled frames do NOT raise the gate for multi-chunk-spatial stores", () => {
+    // Zoom can't reduce the bundled-dim overhead (same bytes per chunk regardless
+    // of zoom level), so including them in the byte budget over-restricts datasets
+    // like MRMS (648 time steps/chunk, 100×100 spatial). The request budget
+    // already captures what zoom can actually fix.
+    expect(deriveMinZoom(10, 256, 256, 4)).toBe(12);
+    // MRMS-like: 1 km, 100×100 chunks → request-bound at z7
+    expect(deriveMinZoom(0.01 * M_PER_DEG, 100, 100, 4)).toBe(7);
   });
 
   it("Meta CHM multiscale coarsest level (64x) gates to a memory-safe floor", () => {
