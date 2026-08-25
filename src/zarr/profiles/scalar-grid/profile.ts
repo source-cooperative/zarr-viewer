@@ -460,29 +460,27 @@ const SINGLE_TILE_BYTE_BUDGET = 256 * 1e6;
  * (`⌈d/chunkW⌉·⌈d/chunkH⌉` — the chunk-driven overfetch). The gate is the
  * lowest zoom satisfying both budgets.
  *
- * The per-zoom byte estimate is the *full atomic chunk*: spatial pixels ×
- * `bundledChunkEls` (the product of non-spatial chunk dims) × element size,
- * because a zarr chunk is fetched whole — a bundled `step`/`time` axis sharing
- * the spatial chunk is pulled per tile regardless of zoom. This matters for
- * multi-chunk-spatial stores, where zooming in genuinely reduces the chunk
- * count.
+ * Non-spatial (bundled) chunk dims are deliberately excluded from the byte
+ * estimate: only one frame shows at a time, and zoom can't reduce the bundled
+ * overhead — including them just over-restricts datasets like MRMS (648 time
+ * steps per inner chunk) without any benefit. The request budget already
+ * captures what zoom can fix.
  *
  * **Single-chunk-plane special case** (when `shapeW`/`shapeH` are passed and the
  * spatial chunk spans the whole plane): the store is one tile, so zooming in
  * can't reduce the fetch — gating it is pure friction. We render it at world
- * view (z0) when its *spatial* footprint fits {@link SINGLE_TILE_BYTE_BUDGET},
- * deliberately ignoring bundled frames (only one shows at a time, and they load
- * regardless of zoom). So a coarse global grid like SILAM (0.2°/120-step,
- * spatial plane ≈3 MB) renders at z0; only a single plane whose own spatial
- * footprint is huge (e.g. a 50000² high-res chunk) falls through to the loop.
+ * view (z0) when its *spatial* footprint fits {@link SINGLE_TILE_BYTE_BUDGET}.
+ * So a coarse global grid like SILAM (0.2°/120-step, spatial plane ≈3 MB)
+ * renders at z0; only a single plane whose own spatial footprint is huge
+ * (e.g. a 50000² high-res chunk) falls through to the loop.
  *
- * Bytes are otherwise the *pure viewport* (not rounded up to whole chunks):
- * tiny chunks blow the request budget and gate up, where zoom can actually fix
- * the overfetch.
+ * Bytes are the *pure viewport* (not rounded up to whole chunks): tiny chunks
+ * blow the request budget and gate up, where zoom can actually fix the overfetch.
  *
  * Examples: FTW ~10 m/256-chunk/f32 → ~z12; 0.25° → ~z1; the same 10 m grid
  * with 64-px chunks → ~z14 (request-bound); int8 gates ~1 level looser than
- * float32 when bytes bind; EEPS 0.02°/whole-plane float16 → z0. */
+ * float32 when bytes bind; EEPS 0.02°/whole-plane float16 → z0;
+ * MRMS 1 km/100-chunk/f32/648-step → ~z7 (request-bound). */
 export function deriveMinZoom(
   metersPerPx: number,
   chunkW: number,
@@ -492,13 +490,6 @@ export function deriveMinZoom(
    * short-circuit; omit to keep the pure per-zoom budget gate. */
   shapeW?: number,
   shapeH?: number,
-  /** Product of the NON-spatial chunk dims (e.g. a bundled `step`/`time` axis
-   * that shares the spatial chunk). Zarr chunks are atomic, so a tile read
-   * pulls the whole chunk including these frames. Applied in the per-zoom loop
-   * (multi-chunk-spatial stores) but NOT to the single-chunk-plane gate, where
-   * zooming can't reduce the fetch anyway — see {@link SINGLE_TILE_BYTE_BUDGET}.
-   * Defaults to 1 (a pure 2-D plane). */
-  bundledChunkEls = 1,
 ): number {
   if (!(metersPerPx > 0)) return 0;
   if (
@@ -520,8 +511,7 @@ export function deriveMinZoom(
   for (let z = 0; z <= MAX_RENDER_ZOOM; z++) {
     const d = REF_AXIS_PX * 2 ** (nativeZoom - z); // data px per axis
     const requests = Math.ceil(d / cw) * Math.ceil(d / ch);
-    // Each fetched chunk carries its full bundled (non-spatial) extent.
-    const bytes = d * d * bundledChunkEls * bytesPerEl;
+    const bytes = d * d * bytesPerEl;
     if (bytes <= BUDGET_BYTES && requests <= BUDGET_CHUNKS) return z;
   }
   return MAX_RENDER_ZOOM;
@@ -689,7 +679,6 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       bytesPerElement(firstArr.dtype),
       shapeW,
       shapeH,
-      bundledChunkEls,
     );
     log.info(
       `prepared "${first.name}" ${firstArr.dtype} [${firstArr.shape.join(",")}] ` +

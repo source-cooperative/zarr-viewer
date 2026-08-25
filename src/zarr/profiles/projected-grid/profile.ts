@@ -117,7 +117,6 @@ export const projectedGridProfile: ZarrProfile<
       bytesPerElement(firstArr.dtype),
       width,
       height,
-      bundledChunkEls,
     );
 
     // CF labels for every non-spatial dim (dates / durations / index), keyed by
