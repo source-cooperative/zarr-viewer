@@ -748,7 +748,11 @@ export default function App() {
     tileActivity.getSnapshot,
   );
 
-  const showSingleBandControls = profile?.needsColormap ?? false;
+  const isUnrenderable =
+    !!profileCtx &&
+    "unrenderableReason" in profileCtx &&
+    !!(profileCtx as { unrenderableReason?: string }).unrenderableReason;
+  const showSingleBandControls = (profile?.needsColormap ?? false) && !isUnrenderable;
   // Non-geographic image profiles (OrthographicView host) hide map-only
   // chassis controls (basemap, location presets, GeoZarr metadata).
   const geographic = profile?.host !== "image";
@@ -868,7 +872,7 @@ export default function App() {
             group: "styling",
           })}
           overviewSlot={
-            structureSummary ? (
+            structureSummary && !isUnrenderable ? (
               <ArrayOverview structure={structureSummary} node={node} />
             ) : null
           }
@@ -882,6 +886,7 @@ export default function App() {
                 structure={structureSummary}
                 codecs={codecSummary}
                 geographic={geographic}
+                hideVariableMeta={isUnrenderable}
               />
             ) : null
           }

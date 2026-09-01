@@ -54,6 +54,10 @@ type Props = {
   /** False for non-geographic (image) hosts — hides the GeoZarr metadata
    * section, which is map-only. Defaults to shown when omitted. */
   geographic?: boolean;
+  /** True when the store opened but has no renderable variable — hides the
+   * per-variable rows (dtype, chunk size, fill value, sharding, attributes)
+   * that would otherwise show only "—" placeholders. */
+  hideVariableMeta?: boolean;
 };
 
 /** Always-visible orientation block at the top of the Options panel: a compact
@@ -81,6 +85,7 @@ export function StructureSection({
   structure,
   codecs,
   geographic = true,
+  hideVariableMeta = false,
 }: Props) {
   const isOpen = state.panelStructure === "open";
   const icechunk = asIcechunk(group.store);
@@ -121,10 +126,10 @@ export function StructureSection({
           icechunk={icechunk}
         />
         <ConventionsSection conventions={conventions} icechunk={icechunk} />
-        <VariableSection structure={structure} node={node} />
-        <ShardingSection codecs={codecs} />
+        {!hideVariableMeta && <VariableSection structure={structure} node={node} />}
+        {!hideVariableMeta && <ShardingSection codecs={codecs} />}
         {geographic && <GeoZarrSection structure={structure} />}
-        <AttributesSection node={node} />
+        {!hideVariableMeta && <AttributesSection node={node} />}
       </div>
     </details>
   );
