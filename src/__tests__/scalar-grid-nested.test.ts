@@ -3,8 +3,10 @@ import * as zarr from "zarrita";
 import type { AsyncReadable } from "zarrita";
 import {
   enumerateVariables,
+  scalarGridProfile,
   shardSpatialShape,
 } from "../zarr/profiles/scalar-grid/profile";
+import type { ScalarGridContext } from "../zarr/profiles/scalar-grid/types";
 
 // A v3 array metadata node (the inline shape stored under a store's
 // consolidated_metadata). Last two `dims` are the spatial pair.
@@ -128,5 +130,14 @@ describe("shardSpatialShape", () => {
   it("returns null on malformed / missing metadata", () => {
     expect(shardSpatialShape(null)).toBeNull();
     expect(shardSpatialShape({ codecs: [{ name: "sharding_indexed" }] })).toBeNull();
+  });
+});
+
+describe("scalarGridProfile.initialState — no renderable variables", () => {
+  it("returns empty state without crashing when variables list is empty", () => {
+    const ctx = { variables: [] } as unknown as ScalarGridContext;
+    const state = scalarGridProfile.initialState(ctx);
+    expect(state.variable).toBe("");
+    expect(state.dimIndices).toEqual({});
   });
 });

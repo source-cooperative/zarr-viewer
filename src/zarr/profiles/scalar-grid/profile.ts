@@ -568,7 +568,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
 
   getStructure: (ctx, state) => ({
     zarrVersion: "v3",
-    variables: [{ path: state.variable }],
+    variables: state.variable ? [{ path: state.variable }] : [],
     metadataSource: ctx.metadataSource,
     metadata: ctx.spatialAttrs,
   }),
@@ -623,7 +623,20 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const skips: EnumerationSkip[] = [];
     const variables = await enumerateVariables(opened.group, signal, arrays, skips);
     if (variables.length === 0) {
-      throw new Error(buildNoVariablesError(skips));
+      done();
+      return {
+        url,
+        group: opened.group,
+        store: opened.store,
+        variables: [],
+        arrays,
+        spatialAttrs: {},
+        metadataSource: "synthesized" as const,
+        rollLongitude: false,
+        minRenderZoom: 0,
+        dimLabel: {},
+        unrenderableReason: buildNoVariablesError(skips),
+      };
     }
     const first = variables[0]!;
     const firstArr = arrays.get(first.name)!;
@@ -762,6 +775,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
   },
 
   initialState(ctx) {
+    if (ctx.variables.length === 0) return { variable: "", dimIndices: {} };
     const variable = pickDefaultVariable(ctx.variables);
     const v = ctx.variables.find((x) => x.name === variable)!;
     return { variable, dimIndices: defaultDimIndices(v) };

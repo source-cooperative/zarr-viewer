@@ -52,6 +52,10 @@ export type ScalarGridSpatialAttrs = {
 export type ScalarGridContext = ProfileBaseContext & {
   store: zarr.Readable;
   variables: ScalarGridVariable[];
+  /** Set when the store opened successfully but has no renderable lat/lon
+   * variables. The viewer shows the Options panel with this notice instead of
+   * a toast error, so users can inspect the dataset structure. */
+  unrenderableReason?: string;
   /** Opened variable arrays cached by name (avoids re-fetching `zarr.json`
    * for non-consolidated stores on every resolveNode). */
   arrays: Map<string, zarr.Array<zarr.DataType, zarr.Readable>>;
