@@ -568,7 +568,7 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
 
   getStructure: (ctx, state) => ({
     zarrVersion: "v3",
-    variables: state.variable ? [{ path: state.variable }] : [],
+    variables: [{ path: state.variable }],
     metadataSource: ctx.metadataSource,
     metadata: ctx.spatialAttrs,
   }),
