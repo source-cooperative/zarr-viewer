@@ -84,13 +84,13 @@ export function humanizeError(err: unknown): string {
         : ((err as { codec?: string }).codec ?? "unknown");
     return `This dataset is compressed with the "${codec}" codec, which this viewer can't decode in the browser — the store opened, but its data can't be displayed. Supported codecs: blosc, zstd, gzip, lz4, zlib. If a Zarr v3 or Icechunk copy of the dataset exists, try that.`;
   }
-  // Store opened but the viewer can't render it.
-  if (
-    lower.includes("no regular lat/lon gridded variables found") ||
-    isZarritaError(err, "UnsupportedError") ||
-    lower.includes("unsupported")
-  ) {
-    return "This store opened, but the viewer can't render it: no regular lat/lon gridded variable (it may use an unstructured mesh, a projected grid, or an unsupported data type).";
+  // Store opened but the viewer can't render it — specific diagnostic from enumeration.
+  if (lower.includes("no renderable lat/lon grid variables found")) {
+    return msg;
+  }
+  // Store opened but the viewer can't render it — generic unsupported path.
+  if (isZarritaError(err, "UnsupportedError") || lower.includes("unsupported")) {
+    return "This store opened, but the viewer can't render it (unsupported format or data type).";
   }
   if (isZarritaError(err) || lower.includes("zarr") || lower.includes("metadata")) {
     return `Could not open the Zarr store: ${msg}`;

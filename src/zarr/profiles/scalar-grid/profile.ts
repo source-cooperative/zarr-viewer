@@ -204,6 +204,40 @@ export function pickTextureDim(
   return { textureDim, memoryDims };
 }
 
+type EnumerationSkip = {
+  path: string;
+  reason: "non-numeric-dtype" | "no-spatial-dims";
+  detail: string;
+};
+
+function buildNoVariablesError(skips: EnumerationSkip[]): string {
+  if (skips.length === 0) {
+    return "No arrays found in this store.";
+  }
+  const noDims = skips.filter((s) => s.reason === "no-spatial-dims");
+  const badType = skips.filter((s) => s.reason === "non-numeric-dtype");
+  const parts: string[] = [];
+  if (noDims.length > 0) {
+    const seen = new Set<string>();
+    for (const s of noDims)
+      for (const d of s.detail.split(",").map((d) => d.trim()))
+        if (d) seen.add(d);
+    const dimList = [...seen].join(", ") || "none";
+    parts.push(
+      `${noDims.length} array(s) skipped — no lat/lon-compatible dimensions` +
+        ` (dimension names seen: ${dimList}).` +
+        ` Viewer requires the last two dims to be one of: latitude/lat/y and longitude/lon/x.`,
+    );
+  }
+  if (badType.length > 0) {
+    const types = [...new Set(badType.map((s) => s.detail))].join(", ");
+    parts.push(
+      `${badType.length} array(s) skipped — non-numeric dtype (${types}).`,
+    );
+  }
+  return `No renderable lat/lon grid variables found.\n${parts.join("\n")}`;
+}
+
 /** Enumerate renderable variables = arrays whose last two dims are a
  * recognized lat/lon pair and whose dtype is numeric. With consolidated
  * metadata this walks the whole hierarchy, so arrays nested in subgroups
@@ -218,6 +252,7 @@ export async function enumerateVariables(
    * per-variable resolveNode — reuse them instead of re-fetching `zarr.json`
    * (which matters for non-consolidated stores where every open is a fetch). */
   arrays: Map<string, zarr.Array<zarr.DataType, zarr.Readable>>,
+  skips?: EnumerationSkip[],
 ): Promise<ScalarGridVariable[]> {
   const store = asConsolidated(group.store);
   // Consolidated metadata → list every node. No consolidated metadata (a plain
@@ -248,13 +283,14 @@ export async function enumerateVariables(
     }
     if (!isNumericDtype(arr.dtype)) {
       log.debug(`enumerate: skip "${rest}" (non-numeric dtype ${arr.dtype})`);
+      skips?.push({ path: rest, reason: "non-numeric-dtype", detail: arr.dtype });
       continue;
     }
     const pair = spatialPair(arr.dimensionNames);
     if (!pair) {
-      log.debug(
-        `enumerate: skip "${rest}" (no lat/lon pair in [${arr.dimensionNames?.join(",")}])`,
-      );
+      const dimStr = arr.dimensionNames?.join(", ") ?? "";
+      log.debug(`enumerate: skip "${rest}" (no lat/lon pair in [${dimStr}])`);
+      skips?.push({ path: rest, reason: "no-spatial-dims", detail: dimStr });
       continue;
     }
     arrays.set(rest, arr);
@@ -584,13 +620,10 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
       }
     }
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
-    const variables = await enumerateVariables(opened.group, signal, arrays);
+    const skips: EnumerationSkip[] = [];
+    const variables = await enumerateVariables(opened.group, signal, arrays, skips);
     if (variables.length === 0) {
-      throw new Error(
-        "No regular lat/lon gridded variables found. This store may use an " +
-          "unstructured mesh (e.g. ICON's `values` dimension) or a projected " +
-          "grid, which this viewer can't render.",
-      );
+      throw new Error(buildNoVariablesError(skips));
     }
     const first = variables[0]!;
     const firstArr = arrays.get(first.name)!;
