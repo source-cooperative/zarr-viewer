@@ -93,6 +93,18 @@ export function ScalarGridControls({
 
   if (group === "styling") return null;
 
+  // When the store opened but has no renderable lat/lon variables, show a
+  // notice in place of the variable picker so the user understands why the
+  // map is empty while still being able to see the dataset structure below.
+  if (ctx.unrenderableReason) {
+    if (group === "instant") return null;
+    return (
+      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.85em", lineHeight: 1.5 }}>
+        {ctx.unrenderableReason}
+      </p>
+    );
+  }
+
   // Instant bucket: the texture-array dim (free shader uniform) plus the
   // fully-packed memory dims (cheap in-memory slice + re-upload, no refetch).
   if (group === "instant") {

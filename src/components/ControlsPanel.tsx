@@ -63,6 +63,8 @@ type Props = {
   showSingleBandControls: boolean;
   /** False for non-geographic (image) hosts — hides map-only controls (basemap). */
   geographic: boolean;
+  /** Hide the entire Styling section (e.g. when no data layer is rendered). */
+  hideStylingSection?: boolean;
   autoStats: AutoStats | null;
   /** Resolved Icechunk ref info for the current store, or null for plain Zarr
    * (the branch/snapshot selectors only render when this is set). */
@@ -84,6 +86,7 @@ export function ControlsPanel({
   autoStats,
   icechunk,
   snapshots,
+  hideStylingSection = false,
 }: Props) {
   const isOpen = state.panel === "open";
 
@@ -233,7 +236,7 @@ export function ControlsPanel({
             </ControlGroup>
           )}
 
-          <ControlGroup
+          {!hideStylingSection && <ControlGroup
             variant="style"
             title="Styling"
             caption="Display only — applies immediately."
@@ -377,7 +380,7 @@ export function ControlsPanel({
                 </select>
               </label>
             )}
-          </ControlGroup>
+          </ControlGroup>}
 
           {structureSlot}
         </div>

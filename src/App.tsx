@@ -334,6 +334,11 @@ export default function App() {
         // the chassis selectors. `group.store` carries the attached info for
         // any profile; null for plain-Zarr stores (selectors stay hidden).
         setIcechunk(asIcechunk(ctx.group.store));
+        // When the store opened but has no renderable variables, auto-expand
+        // the Options panel so the user can see the dataset structure.
+        if ("unrenderableReason" in ctx && ctx.unrenderableReason) {
+          update({ panel: "open" });
+        }
         // Skip the profile's auto-fit when the URL has explicit view
         // params — the user's view wins.
         if (state.view) return;
@@ -743,7 +748,13 @@ export default function App() {
     tileActivity.getSnapshot,
   );
 
-  const showSingleBandControls = profile?.needsColormap ?? false;
+  const unrenderableCtx =
+    profileCtx && "unrenderableReason" in profileCtx
+      ? (profileCtx as { unrenderableReason?: string; representativePath?: string })
+      : null;
+  const isUnrenderable = !!unrenderableCtx?.unrenderableReason;
+  const hasRepresentative = !!unrenderableCtx?.representativePath;
+  const showSingleBandControls = (profile?.needsColormap ?? false) && !isUnrenderable;
   // Non-geographic image profiles (OrthographicView host) hide map-only
   // chassis controls (basemap, location presets, GeoZarr metadata).
   const geographic = profile?.host !== "image";
@@ -831,6 +842,7 @@ export default function App() {
           autoStats={autoStats}
           icechunk={icechunk}
           snapshots={snapshots}
+          hideStylingSection={isUnrenderable}
           profileFetchSlot={profile.Controls({
             ctx: profileCtx,
             state: effectiveProfileState ?? profileState,
@@ -863,7 +875,7 @@ export default function App() {
             group: "styling",
           })}
           overviewSlot={
-            structureSummary ? (
+            structureSummary && !isUnrenderable ? (
               <ArrayOverview structure={structureSummary} node={node} />
             ) : null
           }
@@ -877,6 +889,7 @@ export default function App() {
                 structure={structureSummary}
                 codecs={codecSummary}
                 geographic={geographic}
+                hideVariableMeta={isUnrenderable && !hasRepresentative}
               />
             ) : null
           }

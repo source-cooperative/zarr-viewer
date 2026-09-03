@@ -623,7 +623,34 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const skips: EnumerationSkip[] = [];
     const variables = await enumerateVariables(opened.group, signal, arrays, skips);
     if (variables.length === 0) {
-      throw new Error(buildNoVariablesError(skips));
+      // Cache the first skipped array so resolveNode can serve its metadata
+      // to the structure panel (dtype, shape, chunks, codecs, attributes).
+      let representativePath: string | undefined;
+      if (skips.length > 0) {
+        const p = skips[0]!.path;
+        try {
+          const arr = await zarr.open(opened.group.resolve(p), { kind: "array" });
+          arrays.set(p, arr);
+          representativePath = p;
+        } catch {
+          // leave representative absent — structure shows no-variable placeholders
+        }
+      }
+      done();
+      return {
+        url,
+        group: opened.group,
+        store: opened.store,
+        variables: [],
+        arrays,
+        spatialAttrs: {},
+        metadataSource: "synthesized" as const,
+        rollLongitude: false,
+        minRenderZoom: 0,
+        dimLabel: {},
+        unrenderableReason: buildNoVariablesError(skips),
+        representativePath,
+      };
     }
     const first = variables[0]!;
     const firstArr = arrays.get(first.name)!;
@@ -762,6 +789,8 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
   },
 
   initialState(ctx) {
+    if (ctx.variables.length === 0)
+      return { variable: ctx.representativePath ?? "", dimIndices: {} };
     const variable = pickDefaultVariable(ctx.variables);
     const v = ctx.variables.find((x) => x.name === variable)!;
     return { variable, dimIndices: defaultDimIndices(v) };

@@ -28,10 +28,9 @@ describe("humanizeError", () => {
     expect(humanizeError(new Error("blocked by CORS policy"))).toMatch(/CORS/);
   });
 
-  it("explains an unrenderable store", () => {
-    expect(
-      humanizeError(new Error("No regular lat/lon gridded variables found.")),
-    ).toMatch(/can't render/);
+  it("explains an unsupported store format", () => {
+    // The "no renderable variables" case no longer surfaces as a toast —
+    // prepare() returns a context with unrenderableReason and the panel opens.
     expect(humanizeError(new UnsupportedError("float16"))).toMatch(/can't render/);
   });
 
