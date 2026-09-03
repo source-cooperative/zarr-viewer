@@ -56,6 +56,10 @@ export type ScalarGridContext = ProfileBaseContext & {
    * variables. The viewer shows the Options panel with this notice instead of
    * a toast error, so users can inspect the dataset structure. */
   unrenderableReason?: string;
+  /** Path of the first skipped array used as a representative for the
+   * structure section (dtype, shape, codec info) when unrenderableReason is
+   * set. Added to `arrays` so resolveNode can serve it from cache. */
+  representativePath?: string;
   /** Opened variable arrays cached by name (avoids re-fetching `zarr.json`
    * for non-consolidated stores on every resolveNode). */
   arrays: Map<string, zarr.Array<zarr.DataType, zarr.Readable>>;

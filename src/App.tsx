@@ -748,10 +748,12 @@ export default function App() {
     tileActivity.getSnapshot,
   );
 
-  const isUnrenderable =
-    !!profileCtx &&
-    "unrenderableReason" in profileCtx &&
-    !!(profileCtx as { unrenderableReason?: string }).unrenderableReason;
+  const unrenderableCtx =
+    profileCtx && "unrenderableReason" in profileCtx
+      ? (profileCtx as { unrenderableReason?: string; representativePath?: string })
+      : null;
+  const isUnrenderable = !!unrenderableCtx?.unrenderableReason;
+  const hasRepresentative = !!unrenderableCtx?.representativePath;
   const showSingleBandControls = (profile?.needsColormap ?? false) && !isUnrenderable;
   // Non-geographic image profiles (OrthographicView host) hide map-only
   // chassis controls (basemap, location presets, GeoZarr metadata).
@@ -840,6 +842,7 @@ export default function App() {
           autoStats={autoStats}
           icechunk={icechunk}
           snapshots={snapshots}
+          hideStylingSection={isUnrenderable}
           profileFetchSlot={profile.Controls({
             ctx: profileCtx,
             state: effectiveProfileState ?? profileState,
@@ -886,7 +889,7 @@ export default function App() {
                 structure={structureSummary}
                 codecs={codecSummary}
                 geographic={geographic}
-                hideVariableMeta={isUnrenderable}
+                hideVariableMeta={isUnrenderable && !hasRepresentative}
               />
             ) : null
           }
