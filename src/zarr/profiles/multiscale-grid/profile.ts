@@ -392,7 +392,20 @@ export const multiscaleGridProfile: ZarrProfile<
       );
     }
     done();
-    return { url, group: opened.group, store: opened.store, pyramids };
+    // Surface the default (first) pyramid's render-zoom gate at the top level so
+    // the chassis's "zoom in to load tiles" hint (`ProfileBaseContext.minRenderZoom`)
+    // has a threshold to show — without this, App.tsx's lookup
+    // (`profileCtx?.minRenderZoom ?? profile?.minRenderZoom`) always misses for this
+    // profile (the value only ever lived on each `Pyramid`), so zooming below the
+    // gate (e.g. Meta CHM v2's z9 floor) rendered a silently blank map instead of
+    // the hint (issue #90).
+    return {
+      url,
+      group: opened.group,
+      store: opened.store,
+      pyramids,
+      minRenderZoom: pyramids[0]!.minRenderZoom,
+    };
   },
 
   initialState(ctx) {
