@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { StepperRange } from "./StepperRange";
+import { Tooltip } from "./Tooltip";
 import { tintLabelStyle } from "../zarr/dim-colors";
+import { localTimeTooltip } from "../zarr/profiles/scalar-grid/cf-coords";
 
 const COMMIT_DELAY_MS = 200;
 
@@ -52,6 +54,7 @@ export function DebouncedSlider({
   }, [draft, value, onCommit]);
 
   const display = formatValue ? formatValue(draft) : String(draft);
+  const localTooltip = localTimeTooltip(display);
   // Group, not a <label>: a <label> would associate with StepperRange's first
   // button and double-fire its clicks in some embedded webviews (see
   // PlaybackSlider for the full explanation).
@@ -62,11 +65,35 @@ export function DebouncedSlider({
         style={{ display: "flex", justifyContent: "space-between" }}
       >
         <span>{label}</span>
-        <span className="mono" style={{ textTransform: "none" }}>
-          {display}
-        </span>
+        <ValueBadge display={display} localTooltip={localTooltip} />
       </span>
       <StepperRange value={draft} min={min} max={max} onChange={setDraft} />
     </div>
   );
+}
+
+/** The right-aligned value badge. Wraps in a {@link Tooltip} showing the
+ * local-timezone equivalent when `display` is a UTC date/time label — the
+ * value itself always stays UTC so it's unambiguous and shareable. */
+export function ValueBadge({
+  display,
+  localTooltip,
+}: {
+  display: string;
+  localTooltip: string | null;
+}) {
+  const badge = (
+    <span
+      className="mono"
+      style={{
+        textTransform: "none",
+        ...(localTooltip
+          ? { textDecoration: "underline dotted", textUnderlineOffset: 2, cursor: "help" }
+          : {}),
+      }}
+    >
+      {display}
+    </span>
+  );
+  return localTooltip ? <Tooltip text={localTooltip}>{badge}</Tooltip> : badge;
 }
