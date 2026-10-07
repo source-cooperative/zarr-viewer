@@ -6,6 +6,7 @@ import {
   isAbortError,
   reportTileError,
   reportTileResult,
+  subscribeReprojectionIssue,
   subscribeTileHealth,
 } from "../zarr/tile-error";
 
@@ -162,5 +163,26 @@ describe("tile health", () => {
     subscribeTileHealth((d) => seen.push(d));
     for (let i = 0; i < 6; i++) reportTileError(new Error("boom"));
     expect(seen).toEqual([true]); // one transition despite 6 failures
+  });
+});
+
+describe("reprojection issue detection", () => {
+  it("notifies once and drops repeats of the RasterReprojector message", () => {
+    const original = console.warn;
+    const calls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => calls.push(args);
+    const listener = vi.fn();
+    try {
+      installConsoleAbortFilter();
+      subscribeReprojectionIssue(listener);
+      const msg =
+        "RasterReprojector: mesh refinement did not converge after 10001 iterations";
+      console.warn(msg);
+      console.warn(msg);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(calls).toEqual([[msg]]);
+    } finally {
+      console.warn = original;
+    }
   });
 });
