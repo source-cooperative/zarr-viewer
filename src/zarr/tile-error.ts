@@ -74,6 +74,38 @@ const SUPPRESSED_WARN_SUBSTRINGS: readonly string[] = [
   "luma.gl: Binding sampler not set",
 ];
 
+// --- Reprojection trouble ---------------------------------------------------
+// `RasterReprojector` (deck.gl-raster) logs this when a tile's warp mesh can't
+// be refined to tolerance — typically a tile straddling a projection
+// singularity / out-of-domain area. The library gives no hook, so we spot the
+// console message, log it once, and tell the UI so it can show a notice.
+
+const REPROJECTION_MESSAGE = "RasterReprojector: mesh refinement did not converge";
+
+let reprojectionIssue = false;
+const reprojectionListeners = new Set<() => void>();
+
+function isReprojectionIssue(args: readonly unknown[]): boolean {
+  const msg = args[0];
+  return typeof msg === "string" && msg.includes(REPROJECTION_MESSAGE);
+}
+
+/** Subscribe to the first reprojection failure. Returns an unsubscribe fn. */
+export function subscribeReprojectionIssue(listener: () => void): () => void {
+  reprojectionListeners.add(listener);
+  return () => reprojectionListeners.delete(listener);
+}
+
+/** Returns true if the call is a repeat reprojection failure (to be dropped).
+ * The message repeats per tile per frame, so only the first is forwarded. */
+function isRepeatReprojectionIssue(args: readonly unknown[]): boolean {
+  if (!isReprojectionIssue(args)) return false;
+  if (reprojectionIssue) return true;
+  reprojectionIssue = true;
+  for (const listener of reprojectionListeners) listener();
+  return false;
+}
+
 function isSuppressedWarn(args: readonly unknown[]): boolean {
   if (args.length !== 1) return false;
   const msg = args[0];
@@ -86,6 +118,8 @@ let installed = false;
 /** Reset the install flag. Test-only; not for production use. */
 export function _resetInstalledForTesting(): void {
   installed = false;
+  reprojectionIssue = false;
+  reprojectionListeners.clear();
 }
 
 /** Install one-shot wrappers around `console.error` and `console.warn`
@@ -110,10 +144,12 @@ export function installConsoleAbortFilter(): void {
   const originalWarn = console.warn.bind(console);
   console.error = (...args: unknown[]) => {
     if (args.length === 1 && isAbortError(args[0])) return;
+    if (isRepeatReprojectionIssue(args)) return;
     originalError(...args);
   };
   console.warn = (...args: unknown[]) => {
     if (isSuppressedWarn(args)) return;
+    if (isRepeatReprojectionIssue(args)) return;
     originalWarn(...args);
   };
 }

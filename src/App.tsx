@@ -38,7 +38,7 @@ import { PyramidBadge } from "./components/PyramidBadge";
 import { installKeepMinZoomTiles } from "./render/keep-min-zoom-tiles";
 import * as tileActivity from "./render/tile-activity";
 import type { AutoStats } from "./render/stats";
-import { subscribeTileHealth } from "./zarr/tile-error";
+import { subscribeReprojectionIssue, subscribeTileHealth } from "./zarr/tile-error";
 import {
   detectProfile,
   isSupportedStoreUrl,
@@ -122,6 +122,7 @@ export default function App() {
   // the user dismisses it.
   const [tilesDegraded, setTilesDegraded] = useState(false);
   const [tileNoticeDismissed, setTileNoticeDismissed] = useState(false);
+  const [reprojectionNotice, setReprojectionNotice] = useState(false);
   const [firstSymbolId, setFirstSymbolId] = useState<string | undefined>();
   // True while a programmatic flyTo animation is in flight. The layer
   // `useMemo` returns null when set, so tiles aren't requested for the
@@ -562,6 +563,15 @@ export default function App() {
     });
   }, []);
 
+  // Some tiles can't be reprojected accurately (the library logs a console
+  // message with no hook); tell the user once instead of leaving it silent.
+  useEffect(() => {
+    return subscribeReprojectionIssue(() => {
+      log.warn("reprojection mesh failed to converge for some tiles");
+      setReprojectionNotice(true);
+    });
+  }, []);
+
   // Decode + upload the colormap sprite once the device is ready (only
   // needed for single-band/colormapped profiles).
   useEffect(() => {
@@ -969,6 +979,16 @@ export default function App() {
             : null
         }
         onDismiss={() => setTileNoticeDismissed(true)}
+      />
+
+      <Toast
+        intent="warn"
+        message={
+          reprojectionNotice && !error && !(tilesDegraded && !tileNoticeDismissed)
+            ? "Some tiles could not be reprojected accurately and may look distorted or be missing."
+            : null
+        }
+        onDismiss={() => setReprojectionNotice(false)}
       />
 
       <FullscreenButton />
