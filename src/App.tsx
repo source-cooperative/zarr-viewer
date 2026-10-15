@@ -261,10 +261,10 @@ export default function App() {
           setHover(null);
           return;
         }
-        const valueText =
-          res.value === null
+        const dataLines: string[] = res.valueLines ??
+          [res.value === null
             ? "no data"
-            : `${formatNumber(res.value)}${res.units ? ` ${res.units}` : ""}`;
+            : `${formatNumber(res.value)}${res.units ? ` ${res.units}` : ""}`];
         const coordLines: string[] = [
           `Lat: ${pt.lat.toFixed(5)}°  Lon: ${pt.lng.toFixed(5)}°`,
         ];
@@ -274,8 +274,8 @@ export default function App() {
         setHover({
           x: pt.px,
           y: pt.py,
-          lines: [res.label, valueText, ...coordLines],
-          mutedFrom: 2,
+          lines: [res.label, ...dataLines, ...coordLines],
+          mutedFrom: 1 + dataLines.length,
         });
       });
     },
