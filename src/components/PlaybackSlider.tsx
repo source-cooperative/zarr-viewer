@@ -1,5 +1,7 @@
 import { StepperRange } from "./StepperRange";
+import { ValueBadge } from "./DebouncedSlider";
 import { tintLabelStyle } from "../zarr/dim-colors";
+import { localTimeTooltip } from "../zarr/profiles/scalar-grid/cf-coords";
 
 type Props = {
   label: string;
@@ -36,6 +38,7 @@ export function PlaybackSlider({
   // and some embedded webviews (e.g. Cursor's preview) then double-fire that
   // button's click via the label — toggling play on then off, so Play appears
   // to do nothing. A group has no such click-forwarding.
+  const display = formatValue(value);
   return (
     <div role="group" aria-label={label} style={tintLabelStyle(tint)}>
       <span
@@ -43,9 +46,7 @@ export function PlaybackSlider({
         style={{ display: "flex", justifyContent: "space-between" }}
       >
         <span>{label}</span>
-        <span className="mono" style={{ textTransform: "none" }}>
-          {formatValue(value)}
-        </span>
+        <ValueBadge display={display} localTooltip={localTimeTooltip(display)} />
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
         <button

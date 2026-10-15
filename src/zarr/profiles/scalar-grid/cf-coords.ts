@@ -89,6 +89,33 @@ export function makeCfDimLabel(
   };
 }
 
+const UTC_LABEL_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})Z$/;
+
+/** For a UTC date/time label produced by {@link makeCfDimLabel} (the
+ * `"YYYY-MM-DD HH:MMZ"` shape), returns the equivalent local date/time +
+ * zone abbreviation for a tooltip (e.g. `"Local: Dec 2, 2023, 9:00 AM PST"`).
+ * `timeZone`/`locale` override the viewer's zone/locale (for deterministic
+ * tests); omitted, they're the browser's own. Returns `null` for any other
+ * label shape (duration, index, categorical, numeric-with-units) — those
+ * have no meaningful "local time". */
+export function localTimeTooltip(
+  display: string,
+  timeZone?: string,
+  locale?: string,
+): string | null {
+  const m = UTC_LABEL_RE.exec(display);
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi));
+  const formatted = new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZoneName: "short",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(date);
+  return `Local: ${formatted}`;
+}
+
 /** Decode a `fixed_length_utf32` buffer into strings. Each value occupies
  * `lengthBytes` bytes as little-endian UTF-32 code units, zero-padded; trailing
  * NULs are trimmed. Pure (no I/O) for unit testing. */
