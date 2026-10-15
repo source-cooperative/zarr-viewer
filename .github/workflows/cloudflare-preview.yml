@@ -1,0 +1,26 @@
+name: Cloudflare Preview
+
+# Thin caller for the org-wide preview workflow in source-cooperative/.github.
+# Publishes each PR as a version of this repo's preview Worker, reachable at a
+# stable pr-<n> alias. No `with:` block — package manager, build command, and
+# output directory are all detected. See that repo's README.
+#
+# No `closed` trigger: preview aliases cannot be deleted, so there is nothing to
+# tear down. Previews persist until evicted at 1000 per Worker.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  preview:
+    uses: source-cooperative/.github/.github/workflows/cloudflare-preview.yml@main
+    # Granted here because a called workflow can only maintain or reduce the
+    # caller's token permissions, never elevate them.
+    permissions:
+      contents: read
+      pull-requests: write
+    # Mapped explicitly rather than `secrets: inherit` so the job gets only
+    # these two, not every secret this repo holds.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
