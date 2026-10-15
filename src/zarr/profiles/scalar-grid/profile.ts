@@ -25,6 +25,7 @@ import {
   readProjectedSpatialRef,
 } from "../../projected";
 import { OmeZarrStoreError, isOmeZarrAttrs } from "../image-orthographic/ome";
+import { BandCompositeStoreError } from "../band-composite/errors";
 
 const log = createLogger("profile");
 import type { ZarrProfile } from "../../profile";
@@ -654,6 +655,20 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
         unrenderableReason: buildNoVariablesError(skips),
         representativePath,
       };
+    }
+    // int8 multi-band (e.g. embedding) array → signal the chassis to switch
+    // to the band-composite profile, which renders all bands as an RGB image.
+    if (
+      variables.some((v) => {
+        const arr = arrays.get(v.name);
+        return (
+          arr?.is("int8") &&
+          arr.shape.length >= 3 &&
+          (arr.shape[arr.shape.length - 3] ?? 0) >= 3
+        );
+      })
+    ) {
+      throw new BandCompositeStoreError();
     }
     const first = variables[0]!;
     const firstArr = arrays.get(first.name)!;

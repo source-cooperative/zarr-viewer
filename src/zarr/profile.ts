@@ -23,6 +23,10 @@ export type ProfileBaseContext = {
 export type StoreOpenOptions = {
   branch?: string | null;
   snapshot?: string | null;
+  /** Variable path hint from the `?var=` URL param. Profiles that support
+   * multiple variables (e.g. band-composite on multi-zone stores) should
+   * try this path first before falling back to auto-discovery. */
+  variable?: string;
 };
 
 /** Which bucket of controls to render. The Options panel groups controls by

@@ -36,10 +36,13 @@ describe("profile URL params round-trip", () => {
   });
 
   it("band-composite clamps band index out of range", () => {
-    const parsed = bandCompositeProfile.parseUrlParams(
-      new URLSearchParams("r=200"),
-    );
-    expect(parsed.rBand).toBe(63);
+    // Upper clamp is 255 (WebGL2 Texture2DArray max layers); lower clamp is 0.
+    expect(
+      bandCompositeProfile.parseUrlParams(new URLSearchParams("r=300")).rBand,
+    ).toBe(255);
+    expect(
+      bandCompositeProfile.parseUrlParams(new URLSearchParams("r=-5")).rBand,
+    ).toBe(0);
   });
 });
 

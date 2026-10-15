@@ -6,39 +6,71 @@ import { spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
 import { fetchBandLabels } from "./band-labels";
-import { MIN_ZOOM, NUM_BANDS } from "./constants";
+import { MIN_ZOOM } from "./constants";
 import { BandCompositeControls } from "./controls";
 import { makeRgbRenderTile } from "./render-tile";
 import { getBandCompositeTileData } from "./tile-loader";
 import type { BandCompositeContext, BandCompositeState } from "./types";
 
-/** Find a renderable multi-band variable: a top-level array `[time?, band,
- * y, x]` whose band axis (the dim before the spatial pair) has ≥ 3 entries.
- * The producer's int8 quantization is dataset-specific (see the tile loader),
- * so the dtype is asserted rather than generalized. */
+/** Find a renderable multi-band variable: an int8 array `[time?, band, y, x]`
+ * whose band axis (the dim before the spatial pair) has ≥ 3 entries.
+ *
+ * Priority:
+ *  1. Explicit `hint` path (from the `?var=` URL param).
+ *  2. Path matching the UTM zone that covers `LOCATIONS[0]`'s longitude —
+ *     avoids picking an arbitrary zone from alphabetically-first ordering on
+ *     multi-zone stores (e.g. OLMo).
+ *  3. First matching array from consolidated metadata enumeration. */
 async function findBandVariable(
   group: zarr.Group<zarr.Readable>,
+  hint?: string,
 ): Promise<{ name: string; arr: zarr.Array<"int8", zarr.Readable> }> {
   const store = asConsolidated(group.store);
-  // List nodes from consolidated metadata, else probe the known name
-  // (`embeddings`) — a plain .zarr like AEF ships no consolidated metadata.
   const names = store
     ? store.contents().filter((e) => e.kind === "array").map((e) => e.path.replace(/^\/+/, ""))
     : ["embeddings"];
-  for (const path of names) {
-    if (!path || path.includes("/")) continue;
-    let arr: zarr.Array<zarr.DataType, zarr.Readable>;
-    try {
-      arr = await zarr.open(group.resolve(path), { kind: "array" });
-    } catch {
-      continue;
-    }
+
+  const isValidBandArray = (
+    arr: zarr.Array<zarr.DataType, zarr.Readable>,
+  ): arr is zarr.Array<"int8", zarr.Readable> => {
     const nd = arr.shape.length;
-    if (nd < 3) continue;
-    const bandCount = arr.shape[nd - 3] ?? 0;
-    if (bandCount < 3) continue;
-    if (!arr.is("int8")) continue;
-    return { name: path, arr: arr as zarr.Array<"int8", zarr.Readable> };
+    return nd >= 3 && (arr.shape[nd - 3] ?? 0) >= 3 && arr.is("int8");
+  };
+
+  const tryOpen = async (path: string) => {
+    try {
+      const arr = await zarr.open(group.resolve(path), { kind: "array" });
+      return isValidBandArray(arr) ? { name: path, arr } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // 1. Explicit hint
+  if (hint) {
+    const result = await tryOpen(hint);
+    if (result) return result;
+  }
+
+  // 2. UTM zone matching LOCATIONS[0]'s longitude (for multi-zone stores)
+  const loc = LOCATIONS[0];
+  if (loc) {
+    const zoneNum = Math.floor((loc.longitude + 180) / 6) + 1;
+    const zonePadded = String(zoneNum).padStart(2, "0");
+    const utmCandidate = names.find(
+      (n) => n.includes(`utm${zonePadded}/`) || n === `utm${zonePadded}`,
+    );
+    if (utmCandidate) {
+      const result = await tryOpen(utmCandidate);
+      if (result) return result;
+    }
+  }
+
+  // 3. Enumerate
+  for (const path of names) {
+    if (!path) continue;
+    const result = await tryOpen(path);
+    if (result) return result;
   }
   throw new Error(
     "RGB band composite: no int8 multi-band variable found (expected `[time?, band, y, x]` with ≥3 bands).",
@@ -69,19 +101,39 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
   resolveNode: async (ctx) => ctx.embeddings,
 
   async prepare(url, _signal, open = {}) {
-    const opened = await openV3Group(url, { consolidated: true, ...open });
-    const { name, arr: embeddings } = await findBandVariable(opened.group);
+    const { variable: variableHint, ...storeOpen } = open;
+    const opened = await openV3Group(url, { consolidated: true, ...storeOpen });
+    const { name, arr: embeddings } = await findBandVariable(opened.group, variableHint);
     const bandLabels = await fetchBandLabels(opened.group);
     const nd = embeddings.shape.length;
     // Leading (non-band, non-spatial) axis is the time/year dim, if any.
     const yearCount = nd >= 4 ? (embeddings.shape[0] ?? 0) : 1;
     const bandCount = embeddings.shape[nd - 3] ?? 0;
+    // For nested variables (e.g. utm12/embeddings), the root group carries
+    // store-wide attrs that may not be GeoZarr-compliant for a single tile
+    // region. Use the parent group's attrs instead — they carry the
+    // zone-specific spatial:transform/proj:code that ZarrLayer needs.
+    let rootAttrs: unknown = opened.group.attrs;
+    const parentPath = name.includes("/")
+      ? name.split("/").slice(0, -1).join("/")
+      : null;
+    if (parentPath) {
+      try {
+        const parentGroup = await zarr.open(
+          opened.group.resolve(parentPath),
+          { kind: "group" },
+        );
+        rootAttrs = parentGroup.attrs;
+      } catch {
+        // parent group not openable — fall back to root attrs
+      }
+    }
     return {
       url,
       variable: name,
       group: opened.group,
       embeddings,
-      rootAttrs: opened.group.attrs,
+      rootAttrs,
       bandLabels,
       yearCount,
       bandCount,
@@ -197,5 +249,5 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
 
 function clampBand(n: number): number {
   if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(NUM_BANDS - 1, Math.floor(n)));
+  return Math.max(0, Math.min(255, Math.floor(n)));
 }

@@ -4,9 +4,6 @@ export const AEF_URL_PATTERN = "aef-mosaic";
 /** Path to the embeddings array within the root group. */
 export const AEF_VARIABLE = "embeddings";
 
-/** Number of embedding dimensions. */
-export const NUM_BANDS = 64;
-
 /** Calendar year corresponding to time index 0. */
 export const YEAR_ORIGIN = 2017;
 
