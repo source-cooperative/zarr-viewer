@@ -25,6 +25,8 @@ export type UnstructuredGridVariable = {
 export type UnstructuredSlice = {
   __ungrid: true;
   values: Float32Array;
+  /** Cached RGBA colors from the last buildLayer call with these parameters. */
+  cachedColors?: { key: string; colors: Uint8Array };
 };
 
 export type UnstructuredGridContext = ProfileBaseContext & {
@@ -34,6 +36,9 @@ export type UnstructuredGridContext = ProfileBaseContext & {
   positions: Float32Array;
   nPoints: number;
   dimLabel: Record<string, (idx: number) => string>;
+  /** Decoded slice values keyed by sliceKey(state). Populated in resolveNode
+   * so sampleValue can read without depending on buildLayer side-effects. */
+  sliceMap: Map<string, Float32Array>;
 };
 
 export type UnstructuredGridState = {

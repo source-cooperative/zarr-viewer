@@ -55,7 +55,7 @@ import {
 import { MultiscaleStoreError } from "./zarr/multiscale";
 import { ProjectedGridStoreError } from "./zarr/projected";
 import { OmeZarrStoreError } from "./zarr/profiles/image-orthographic/ome";
-import { UnstructuredGridStoreError } from "./zarr/profiles/unstructured-grid/profile";
+import { UnstructuredGridStoreError } from "./zarr/profiles/unstructured-grid/detect";
 import { loadColormapLut } from "./components/colormap-lut";
 import { getProfile } from "./zarr/profiles";
 import {
@@ -585,14 +585,14 @@ export default function App() {
   // profile's buildLayer has it available. Increments lutVersion on load to
   // cause the buildLayer useMemo to re-run and pick up the freshly cached LUT.
   useEffect(() => {
-    if (!profile?.needsColormap) return;
+    if (!profile?.needsCpuLut) return;
     const cm = state.colormap ?? "viridis";
     let cancelled = false;
     loadColormapLut(cm)
       .then(() => { if (!cancelled) setLutVersion((v) => v + 1); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [profile?.needsColormap, state.colormap]);
+  }, [profile?.needsCpuLut, state.colormap]);
 
   // Decode + upload the colormap sprite once the device is ready (only
   // needed for single-band/colormapped profiles).

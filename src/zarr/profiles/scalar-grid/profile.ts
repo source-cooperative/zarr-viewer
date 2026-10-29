@@ -28,7 +28,7 @@ import { OmeZarrStoreError, isOmeZarrAttrs } from "../image-orthographic/ome";
 import {
   UnstructuredGridStoreError,
   detectUnstructuredVariable,
-} from "../unstructured-grid/profile";
+} from "../unstructured-grid/detect";
 
 const log = createLogger("profile");
 import type { ZarrProfile } from "../../profile";
@@ -629,6 +629,10 @@ export const scalarGridProfile: ZarrProfile<ScalarGridState, ScalarGridContext> 
     const variables = await enumerateVariables(opened.group, signal, arrays, skips);
     // Before surfacing a "no variables" error, probe for an unstructured grid
     // (CF `coordinates` → 1-D lat/lon arrays). Switch profiles if detected.
+    // Note: this probe only runs when variables.length === 0 (all arrays were
+    // skipped). A dataset with BOTH regular 2D lat/lon variables AND unstructured
+    // variables will open as scalar-grid; the unstructured variables are silently
+    // ignored because the regular variables satisfy the scalar-grid detector first.
     if (variables.length === 0 && skips.some((s) => s.reason === "no-spatial-dims")) {
       const store = asConsolidated(opened.store);
       const probePaths = store

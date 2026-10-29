@@ -10,6 +10,10 @@ import type { ZarrProfile } from "../../profile";
 import { getColormapLut, loadColormapLut } from "../../../components/colormap-lut";
 import { UnstructuredGridControls } from "./controls";
 import {
+  UnstructuredGridStoreError,
+  detectUnstructuredVariable,
+} from "./detect";
+import {
   defaultUnstructuredDimIndices,
   type UnstructuredGridContext,
   type UnstructuredGridState,
@@ -17,25 +21,9 @@ import {
   type UnstructuredSlice,
 } from "./types";
 
+export { UnstructuredGridStoreError, detectUnstructuredVariable };
+
 const log = createLogger("unstructured-grid");
-
-const LAT_NAMES = ["latitude", "lat"];
-const LON_NAMES = ["longitude", "lon"];
-
-/** Thrown by the scalar-grid profile's `prepare` when it detects an
- * unstructured grid (CF `coordinates` → 1-D lat/lon arrays), signalling the
- * chassis to switch to the `unstructured-grid` profile. */
-export class UnstructuredGridStoreError extends Error {
-  constructor() {
-    super("unstructured grid store — use the unstructured-grid profile");
-    this.name = "UnstructuredGridStoreError";
-  }
-}
-
-// Module-level slice cache: maps sliceKey → decoded Float32Array.
-// Populated in buildLayer; consumed in sampleValue. LRU-capped at 4 entries.
-const sliceCache = new Map<string, Float32Array>();
-const MAX_SLICE_KEYS = 4;
 
 function sliceKey(state: UnstructuredGridState): string {
   const dims = Object.keys(state.dimIndices)
@@ -43,64 +31,6 @@ function sliceKey(state: UnstructuredGridState): string {
     .map((k) => `${k}=${state.dimIndices[k]}`)
     .join(",");
   return `${state.variable}|${dims}`;
-}
-
-function storeSlice(key: string, values: Float32Array): void {
-  if (sliceCache.has(key)) return;
-  if (sliceCache.size >= MAX_SLICE_KEYS) {
-    const oldest = sliceCache.keys().next().value as string | undefined;
-    if (oldest !== undefined) sliceCache.delete(oldest);
-  }
-  sliceCache.set(key, values);
-}
-
-/** Check if any array in `paths` has a CF `coordinates` attribute pointing to
- * 1-D lat/lon arrays of the correct size. Returns the first match's metadata,
- * or null when nothing qualifies. */
-export async function detectUnstructuredVariable(
-  group: zarr.Group<zarr.Readable>,
-  paths: string[],
-  signal: AbortSignal,
-): Promise<{
-  path: string;
-  latName: string;
-  lonName: string;
-  gridDimSize: number;
-} | null> {
-  for (const path of paths) {
-    if (signal.aborted) return null;
-    let arr: zarr.Array<zarr.DataType, zarr.Readable>;
-    try {
-      arr = await zarr.open(group.resolve(path), { kind: "array" });
-    } catch {
-      continue;
-    }
-    const coords = arr.attrs.coordinates;
-    if (typeof coords !== "string") continue;
-    const names = coords.trim().split(/\s+/);
-    const latName = names.find((n) => LAT_NAMES.includes(n));
-    const lonName = names.find((n) => LON_NAMES.includes(n));
-    if (!latName || !lonName) continue;
-    const gridDimSize = arr.shape[arr.shape.length - 1];
-    if (!gridDimSize) continue;
-    try {
-      const [la, lo] = await Promise.all([
-        zarr.open(group.resolve(latName), { kind: "array" }),
-        zarr.open(group.resolve(lonName), { kind: "array" }),
-      ]);
-      if (
-        la.shape.length === 1 &&
-        la.shape[0] === gridDimSize &&
-        lo.shape.length === 1 &&
-        lo.shape[0] === gridDimSize
-      ) {
-        return { path, latName, lonName, gridDimSize };
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
 }
 
 async function enumerateVariables(
@@ -185,6 +115,7 @@ export const unstructuredGridProfile: ZarrProfile<
   id: "unstructured-grid",
   label: "Unstructured grid (scatter)",
   needsColormap: true,
+  needsCpuLut: true,
 
   getStructure: (_ctx, state) => ({
     zarrVersion: "v3",
@@ -225,7 +156,9 @@ export const unstructuredGridProfile: ZarrProfile<
     );
 
     // Await the default colormap LUT so the first buildLayer call has it.
-    await loadColormapLut("viridis").catch(() => {});
+    await loadColormapLut("viridis").catch((e) =>
+      log.warn("failed to load colormap LUT", e),
+    );
 
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(
@@ -284,6 +217,7 @@ export const unstructuredGridProfile: ZarrProfile<
       positions,
       nPoints,
       dimLabel,
+      sliceMap: new Map(),
     };
   },
 
@@ -345,6 +279,9 @@ export const unstructuredGridProfile: ZarrProfile<
           ? Number.NaN
           : v * varMeta.scaleFactor + varMeta.addOffset;
     }
+    // Store decoded values in context so sampleValue can read them without
+    // depending on buildLayer side-effects.
+    ctx.sliceMap.set(sliceKey(state), values);
     const slice: UnstructuredSlice = { __ungrid: true, values };
     return slice as unknown as zarr.Group<zarr.Readable>;
   },
@@ -356,7 +293,13 @@ export const unstructuredGridProfile: ZarrProfile<
       .map((k) => `${k}=${state.dimIndices[k]}`),
   ],
 
-  statsDeps: (state) => [state.variable],
+  // Include dim indices so the range is recomputed when the time index changes.
+  statsDeps: (state) => [
+    state.variable,
+    ...Object.keys(state.dimIndices)
+      .sort()
+      .map((k) => `${k}=${state.dimIndices[k]}`),
+  ],
 
   buildLayer({ ctx, state, chassisState, autoStats, node }) {
     if (!node) return null;
@@ -372,43 +315,57 @@ export const unstructuredGridProfile: ZarrProfile<
     const colormap = chassisState.colormap ?? "viridis";
     const lut = getColormapLut(colormap);
     const autoRange = autoStats?.global;
-    const rMin = chassisState.rescale?.[0] ?? autoRange?.min ?? 0;
-    const rMax = chassisState.rescale?.[1] ?? autoRange?.max ?? 1;
+
+    // Don't render until we have a real data range — avoids a flash of
+    // saturated colors before auto-stats arrive.
+    const hasRange = chassisState.rescale != null || autoRange != null;
+    if (!hasRange) return null;
+
+    const rMin = chassisState.rescale?.[0] ?? autoRange!.min;
+    const rMax = chassisState.rescale?.[1] ?? autoRange!.max;
     const range = Math.max(rMax - rMin, 1e-9);
     const maskBelow = chassisState.maskBelow;
     const maskAbove = chassisState.maskAbove;
 
-    const { values } = slice;
-    const nPoints = ctx.nPoints;
-    const colors = new Uint8Array(nPoints * 4);
-    for (let i = 0; i < nPoints; i++) {
-      const v = values[i]!;
-      if (
-        Number.isNaN(v) ||
-        (maskBelow && v < rMin) ||
-        (maskAbove && v > rMax)
-      ) {
-        // alpha stays 0 → transparent
-        continue;
+    // Cache colors on the slice object — reuse when colormap/range/masks
+    // haven't changed (e.g. only opacity changed), avoiding 542K iterations
+    // and a GPU buffer re-upload.
+    const colorKey = `${colormap}|${rMin}|${rMax}|${maskBelow}|${maskAbove}|${lut !== null}`;
+    let colors: Uint8Array;
+    if (slice.cachedColors?.key === colorKey) {
+      colors = slice.cachedColors.colors;
+    } else {
+      const { values } = slice;
+      const nPoints = ctx.nPoints;
+      colors = new Uint8Array(nPoints * 4);
+      for (let i = 0; i < nPoints; i++) {
+        const v = values[i]!;
+        if (
+          Number.isNaN(v) ||
+          (maskBelow && v < rMin) ||
+          (maskAbove && v > rMax)
+        ) {
+          // alpha stays 0 → transparent
+          continue;
+        }
+        const t = Math.max(0, Math.min(1, (v - rMin) / range));
+        const o = i * 4;
+        if (lut) {
+          const ci = Math.round(t * 255) * 4;
+          colors[o] = lut[ci]!;
+          colors[o + 1] = lut[ci + 1]!;
+          colors[o + 2] = lut[ci + 2]!;
+          colors[o + 3] = 255;
+        } else {
+          const g = Math.round(t * 255);
+          colors[o] = g;
+          colors[o + 1] = g;
+          colors[o + 2] = g;
+          colors[o + 3] = 255;
+        }
       }
-      const t = Math.max(0, Math.min(1, (v - rMin) / range));
-      const o = i * 4;
-      if (lut) {
-        const ci = Math.round(t * 255) * 4;
-        colors[o] = lut[ci]!;
-        colors[o + 1] = lut[ci + 1]!;
-        colors[o + 2] = lut[ci + 2]!;
-        colors[o + 3] = 255;
-      } else {
-        const g = Math.round(t * 255);
-        colors[o] = g;
-        colors[o + 1] = g;
-        colors[o + 2] = g;
-        colors[o + 3] = 255;
-      }
+      slice.cachedColors = { key: colorKey, colors };
     }
-
-    storeSlice(sliceKey(state), values);
 
     return new ScatterplotLayer({
       id: `unstructured-grid-${state.variable}`,
@@ -418,7 +375,7 @@ export const unstructuredGridProfile: ZarrProfile<
       // data.attributes also takes precedence over constant fallback props,
       // so we omit those fallback props to let the binary color buffer be used.
       data: {
-        length: nPoints,
+        length: ctx.nPoints,
         attributes: {
           getPosition: { value: ctx.positions, size: 2 },
           getFillColor: { value: colors, size: 4 },
@@ -437,7 +394,7 @@ export const unstructuredGridProfile: ZarrProfile<
   sampleValue(ctx, state, lng, lat) {
     const varMeta = ctx.variables.find((v) => v.name === state.variable);
     if (!varMeta) return null;
-    const values = sliceCache.get(sliceKey(state));
+    const values = ctx.sliceMap.get(sliceKey(state));
     if (!values) return null;
 
     // O(n) nearest-neighbor scan — ~1 ms for 542 K points, acceptable.
@@ -474,13 +431,13 @@ export const unstructuredGridProfile: ZarrProfile<
     if (!varMeta) return null;
     const arr = ctx.arrays.get(state.variable);
     if (!arr) return null;
-    const chunkSize = Math.min(
-      arr.chunks[arr.chunks.length - 1] ?? ctx.nPoints,
-      ctx.nPoints,
-    );
+    // Load the full grid slice (not just the first chunk) so the stats
+    // represent the whole globe, not only the northernmost band (N320 is
+    // ordered by latitude). Also apply scale/offset so the range is in
+    // physical units, matching the decoded values in resolveNode.
     const sliceSpec: (number | zarr.Slice | null)[] = [
       ...varMeta.dims.map((d) => state.dimIndices[d.name] ?? 0),
-      zarr.slice(0, chunkSize),
+      null,
     ];
     const chunk = await zarr.get(
       arr as zarr.Array<zarr.NumberDataType, zarr.Readable>,
@@ -493,7 +450,9 @@ export const unstructuredGridProfile: ZarrProfile<
     for (let i = 0; i < raw.length; i++) {
       const v = Number(raw[i]);
       decoded[i] =
-        varMeta.fillValue !== null && v === varMeta.fillValue ? Number.NaN : v;
+        varMeta.fillValue !== null && v === varMeta.fillValue
+          ? Number.NaN
+          : v * varMeta.scaleFactor + varMeta.addOffset;
     }
     const stats = buildBandStats(decoded, null);
     return stats ? autoStatsFromGlobal(stats) : null;

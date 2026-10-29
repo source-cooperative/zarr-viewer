@@ -145,6 +145,10 @@ export type ZarrProfile<
   /** Whether this profile uses single-band + colormap rendering (and so
    * needs the colormap sprite uploaded before layer construction). */
   needsColormap: boolean;
+  /** Whether this profile applies the colormap on the CPU (via getColormapLut)
+   * rather than the GPU. When true, App.tsx loads the LUT for the current
+   * colormap and increments lutVersion to trigger a buildLayer re-run. */
+  needsCpuLut?: boolean;
   /** The profile's animatable "live" dim for the current state — a texture-array
    * dim scrubbed as a GPU uniform — or null when nothing is animatable. Lets the
    * profile-agnostic chassis drive the playback transport. */
