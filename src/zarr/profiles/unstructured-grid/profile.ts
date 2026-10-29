@@ -272,17 +272,26 @@ export const unstructuredGridProfile: ZarrProfile<
     );
     const raw = chunk.data as ArrayLike<number>;
     const values = new Float32Array(raw.length);
+    let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < raw.length; i++) {
       const v = Number(raw[i]);
-      values[i] =
+      const decoded =
         varMeta.fillValue !== null && v === varMeta.fillValue
           ? Number.NaN
           : v * varMeta.scaleFactor + varMeta.addOffset;
+      values[i] = decoded;
+      if (Number.isFinite(decoded)) {
+        if (decoded < lo) lo = decoded;
+        if (decoded > hi) hi = decoded;
+      }
     }
     // Store decoded values in context so sampleValue can read them without
     // depending on buildLayer side-effects.
     ctx.sliceMap.set(sliceKey(state), values);
-    const slice: UnstructuredSlice = { __ungrid: true, values };
+    const fallbackRange: [number, number] | null = Number.isFinite(lo)
+      ? [lo, hi]
+      : null;
+    const slice: UnstructuredSlice = { __ungrid: true, values, fallbackRange };
     return slice as unknown as zarr.Group<zarr.Readable>;
   },
 
@@ -316,13 +325,19 @@ export const unstructuredGridProfile: ZarrProfile<
     const lut = getColormapLut(colormap);
     const autoRange = autoStats?.global;
 
-    // Don't render until we have a real data range — avoids a flash of
-    // saturated colors before auto-stats arrive.
-    const hasRange = chassisState.rescale != null || autoRange != null;
-    if (!hasRange) return null;
-
-    const rMin = chassisState.rescale?.[0] ?? autoRange!.min;
-    const rMax = chassisState.rescale?.[1] ?? autoRange!.max;
+    // Resolve the display range: explicit rescale wins; then autoStats
+    // percentile range; then the inline min/max computed in resolveNode as a
+    // fallback so points appear immediately even before computeAutoStats
+    // returns. Only return null when there are literally no valid values.
+    const rMin =
+      chassisState.rescale?.[0] ??
+      autoRange?.min ??
+      slice.fallbackRange?.[0];
+    const rMax =
+      chassisState.rescale?.[1] ??
+      autoRange?.max ??
+      slice.fallbackRange?.[1];
+    if (rMin == null || rMax == null) return null;
     const range = Math.max(rMax - rMin, 1e-9);
     const maskBelow = chassisState.maskBelow;
     const maskAbove = chassisState.maskAbove;

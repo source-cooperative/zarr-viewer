@@ -25,6 +25,9 @@ export type UnstructuredGridVariable = {
 export type UnstructuredSlice = {
   __ungrid: true;
   values: Float32Array;
+  /** Inline min/max computed in resolveNode as a fallback range for buildLayer
+   * before computeAutoStats returns. Null when all values are fill/NaN. */
+  fallbackRange: [number, number] | null;
   /** Cached RGBA colors from the last buildLayer call with these parameters. */
   cachedColors?: { key: string; colors: Uint8Array };
 };
