@@ -412,25 +412,17 @@ export const unstructuredGridProfile: ZarrProfile<
 
     return new ScatterplotLayer({
       id: `unstructured-grid-${state.variable}`,
-      // Binary data attributes: positions from the cached Float32Array,
-      // colors recomputed on every render (colormap/rescale changes are
-      // detected via the useMemo deps in App.tsx that include chassisState).
-      data: {
-        length: nPoints,
-        attributes: {
-          getPosition: { value: ctx.positions, size: 2 },
-          getFillColor: { value: colors, size: 4, normalized: false },
-        },
+      data: { length: nPoints },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      getPosition: { value: ctx.positions, size: 2 } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      getFillColor: { value: colors, size: 4 } as any,
       getRadius: 15000,
       radiusUnits: "meters",
       radiusMinPixels: 1,
       radiusMaxPixels: 15,
       stroked: false,
       opacity: chassisState.opacity,
-      getPosition: [0, 0] as [number, number],
-      getFillColor: [128, 128, 128, 255] as [number, number, number, number],
     });
   },
 
