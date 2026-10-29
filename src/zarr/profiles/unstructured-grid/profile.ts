@@ -224,8 +224,8 @@ export const unstructuredGridProfile: ZarrProfile<
       `detected unstructured grid: ${gridDimSize} points, lat=${latName}, lon=${lonName}`,
     );
 
-    // Prime the colormap LUT cache in the background.
-    loadColormapLut("viridis").catch(() => {});
+    // Await the default colormap LUT so the first buildLayer call has it.
+    await loadColormapLut("viridis").catch(() => {});
 
     const arrays = new Map<string, zarr.Array<zarr.DataType, zarr.Readable>>();
     const variables = await enumerateVariables(

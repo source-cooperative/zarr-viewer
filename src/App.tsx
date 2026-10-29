@@ -56,6 +56,7 @@ import { MultiscaleStoreError } from "./zarr/multiscale";
 import { ProjectedGridStoreError } from "./zarr/projected";
 import { OmeZarrStoreError } from "./zarr/profiles/image-orthographic/ome";
 import { UnstructuredGridStoreError } from "./zarr/profiles/unstructured-grid/profile";
+import { loadColormapLut } from "./components/colormap-lut";
 import { getProfile } from "./zarr/profiles";
 import {
   buildExampleLoadPatch,
@@ -110,6 +111,9 @@ export default function App() {
   const prefersDark = usePrefersDark();
   const [device, setDevice] = useState<Device | null>(null);
   const [colormapTexture, setColormapTexture] = useState<Texture | null>(null);
+  // Incremented each time a CPU-side colormap LUT finishes loading so the
+  // buildLayer useMemo re-runs and picks up the freshly cached LUT.
+  const [lutVersion, setLutVersion] = useState(0);
   const [profileCtx, setProfileCtx] = useState<ProfileBaseContext | null>(null);
   const [node, setNode] = useState<
     zarr.Array<zarr.DataType, zarr.Readable> | zarr.Group<zarr.Readable> | null
@@ -577,6 +581,19 @@ export default function App() {
     });
   }, []);
 
+  // Load the CPU-side LUT for the current colormap so the unstructured-grid
+  // profile's buildLayer has it available. Increments lutVersion on load to
+  // cause the buildLayer useMemo to re-run and pick up the freshly cached LUT.
+  useEffect(() => {
+    if (!profile?.needsColormap) return;
+    const cm = state.colormap ?? "viridis";
+    let cancelled = false;
+    loadColormapLut(cm)
+      .then(() => { if (!cancelled) setLutVersion((v) => v + 1); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [profile?.needsColormap, state.colormap]);
+
   // Decode + upload the colormap sprite once the device is ready (only
   // needed for single-band/colormapped profiles).
   useEffect(() => {
@@ -652,6 +669,7 @@ export default function App() {
     state,
     device,
     colormapTexture,
+    lutVersion,
     autoStats,
     firstSymbolId,
     node,
