@@ -58,7 +58,9 @@ export function defaultUnstructuredDimIndices(
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const dim of v.dims) {
-    out[dim.name] = defaultsToLatest(dim.name) ? Math.max(0, dim.size - 1) : 0;
+    // Use second-to-last for time-like dims: live archives often have an
+    // unfilled trailing slot at dim.size-1 with only fill values.
+    out[dim.name] = defaultsToLatest(dim.name) ? Math.max(0, dim.size - 2) : 0;
   }
   return out;
 }
