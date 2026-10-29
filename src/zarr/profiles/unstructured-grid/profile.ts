@@ -310,7 +310,7 @@ export const unstructuredGridProfile: ZarrProfile<
       .map((k) => `${k}=${state.dimIndices[k]}`),
   ],
 
-  buildLayer({ ctx, state, chassisState, autoStats, node }) {
+  buildLayer({ ctx, state, chassisState, autoStats, basemapBeforeId, node }) {
     if (!node) return null;
     // Detect our sentinel type (resolveNode casts UnstructuredSlice → Group).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -384,6 +384,7 @@ export const unstructuredGridProfile: ZarrProfile<
 
     return new ScatterplotLayer({
       id: `unstructured-grid-${state.variable}`,
+      ...({ beforeId: basemapBeforeId } as Record<string, unknown>),
       // data.attributes is required for getPosition: the instancePositions
       // attribute uses fp64 high/low encoding that only the attribute manager
       // handles when going through data.attributes (not via prop binary spec).
