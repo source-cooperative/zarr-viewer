@@ -55,6 +55,7 @@ import {
 import { MultiscaleStoreError } from "./zarr/multiscale";
 import { ProjectedGridStoreError } from "./zarr/projected";
 import { OmeZarrStoreError } from "./zarr/profiles/image-orthographic/ome";
+import { UnstructuredGridStoreError } from "./zarr/profiles/unstructured-grid/profile";
 import { getProfile } from "./zarr/profiles";
 import {
   buildExampleLoadPatch,
@@ -386,6 +387,15 @@ export default function App() {
           if (!state.profileId && state.url) {
             log.info("switching to projected-grid profile");
             setAutoProfile({ url: state.url, id: "projected-grid" });
+          }
+          return;
+        }
+        if (err instanceof UnstructuredGridStoreError) {
+          // The default profile detected an unstructured grid (CF `coordinates`
+          // → 1-D lat/lon arrays) → switch to the unstructured-grid profile.
+          if (!state.profileId && state.url) {
+            log.info("switching to unstructured-grid profile");
+            setAutoProfile({ url: state.url, id: "unstructured-grid" });
           }
           return;
         }

@@ -61,3 +61,10 @@ export async function loadColormapLut(name: string): Promise<Uint8Array | null> 
   lutCache.set(name, lut);
   return lut;
 }
+
+/** Synchronous LUT accessor — returns the cached LUT for `name`, or `null`
+ * when it hasn't been loaded yet. Call {@link loadColormapLut} earlier (e.g.
+ * in `prepare()`) to prime the cache before `buildLayer` runs. */
+export function getColormapLut(name: string): Uint8Array | null {
+  return lutCache.get(name) ?? null;
+}

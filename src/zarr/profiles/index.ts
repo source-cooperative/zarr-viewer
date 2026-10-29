@@ -4,6 +4,7 @@ import { imageOrthographicProfile } from "./image-orthographic/profile";
 import { multiscaleGridProfile } from "./multiscale-grid/profile";
 import { projectedGridProfile } from "./projected-grid/profile";
 import { scalarGridProfile } from "./scalar-grid/profile";
+import { unstructuredGridProfile } from "./unstructured-grid/profile";
 
 /** Registered profiles, by capability. Selection is by the explicit `?p=`
  * profile id ({@link getProfile}); when none is given, the chassis defaults to
@@ -14,6 +15,7 @@ export const PROFILES: readonly AnyZarrProfile[] = [
   bandCompositeProfile,
   multiscaleGridProfile,
   projectedGridProfile,
+  unstructuredGridProfile,
   imageOrthographicProfile,
 ];
 
