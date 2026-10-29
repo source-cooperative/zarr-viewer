@@ -15,7 +15,6 @@ function loadSprite(): Promise<ImageData> {
   if (spritePromise) return spritePromise;
   spritePromise = new Promise<ImageData>((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
@@ -29,6 +28,10 @@ function loadSprite(): Promise<ImageData> {
       resolve(cx.getImageData(0, 0, canvas.width, canvas.height));
     };
     img.onerror = () => reject(new Error("failed to load colormaps sprite"));
+    // No crossOrigin attribute: the sprite is a same-origin bundled asset,
+    // so no CORS request is needed and the canvas will not be tainted.
+    // If this sprite is ever moved to a CDN, add crossOrigin = "anonymous"
+    // and ensure the CDN sends Access-Control-Allow-Origin.
     img.src = colormapsPngUrl;
   });
   return spritePromise;
@@ -60,4 +63,11 @@ export async function loadColormapLut(name: string): Promise<Uint8Array | null> 
   }
   lutCache.set(name, lut);
   return lut;
+}
+
+/** Synchronous LUT accessor — returns the cached LUT for `name`, or `null`
+ * when it hasn't been loaded yet. Call {@link loadColormapLut} earlier (e.g.
+ * in `prepare()`) to prime the cache before `buildLayer` runs. */
+export function getColormapLut(name: string): Uint8Array | null {
+  return lutCache.get(name) ?? null;
 }
