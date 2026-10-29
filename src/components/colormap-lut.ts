@@ -15,7 +15,6 @@ function loadSprite(): Promise<ImageData> {
   if (spritePromise) return spritePromise;
   spritePromise = new Promise<ImageData>((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
