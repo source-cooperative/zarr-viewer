@@ -412,11 +412,19 @@ export const unstructuredGridProfile: ZarrProfile<
 
     return new ScatterplotLayer({
       id: `unstructured-grid-${state.variable}`,
-      data: { length: nPoints },
+      // data.attributes is required for getPosition: the instancePositions
+      // attribute uses fp64 high/low encoding that only the attribute manager
+      // handles when going through data.attributes (not via prop binary spec).
+      // data.attributes also takes precedence over constant fallback props,
+      // so we omit those fallback props to let the binary color buffer be used.
+      data: {
+        length: nPoints,
+        attributes: {
+          getPosition: { value: ctx.positions, size: 2 },
+          getFillColor: { value: colors, size: 4 },
+        },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      getPosition: { value: ctx.positions, size: 2 } as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      getFillColor: { value: colors, size: 4 } as any,
+      } as any,
       getRadius: 15000,
       radiusUnits: "meters",
       radiusMinPixels: 1,
