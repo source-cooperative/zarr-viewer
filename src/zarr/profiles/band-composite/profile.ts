@@ -5,11 +5,12 @@ import { KEEP_MIN_ZOOM_EXTENT } from "../../../render/keep-min-zoom-tiles";
 import { spatialTileSize } from "../../chunk-size";
 import { asConsolidated, openV3Group } from "../../load-zarr";
 import type { ZarrProfile } from "../../profile";
+import { readSampleValue } from "../../../render/sample-source";
 import { fetchBandLabels } from "./band-labels";
-import { MIN_ZOOM, NUM_BANDS } from "./constants";
+import { DEQUANT_DIVISOR, MIN_ZOOM, NODATA_INT8, NUM_BANDS } from "./constants";
 import { BandCompositeControls } from "./controls";
 import { makeRgbRenderTile } from "./render-tile";
-import { getBandCompositeTileData } from "./tile-loader";
+import { bandCompositeSampleKey, makeBandCompositeTileLoader } from "./tile-loader";
 import type { BandCompositeContext, BandCompositeState } from "./types";
 
 /** Find a renderable multi-band variable: a top-level array `[time?, band,
@@ -164,7 +165,9 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
       // Assumes the band variable's dims are `[time, band, y, x]` (the only
       // band-composite source so far); `band: null` loads all bands.
       selection: { time: state.year, band: null },
-      getTileData: getBandCompositeTileData,
+      getTileData: makeBandCompositeTileLoader({
+        sampleKey: bandCompositeSampleKey(state.year),
+      }),
       renderTile,
       // Align tile grid with the embeddings array's spatial chunk shape.
       tileSize: spatialTileSize(ctx.embeddings),
@@ -192,6 +195,48 @@ export const bandCompositeProfile: ZarrProfile<BandCompositeState, BandComposite
       // expose it, so attach via a wider cast.
       ...({ beforeId: basemapBeforeId } as Record<string, unknown>),
     });
+  },
+  sampleValue(ctx, state, lng, lat) {
+    const attrs = ctx.rootAttrs as Record<string, unknown> | undefined;
+    if (!attrs) return null;
+    const t = attrs["spatial:transform"] as number[] | undefined;
+    const shape = attrs["spatial:shape"] as number[] | undefined;
+    if (!Array.isArray(t) || !Array.isArray(shape)) return null;
+    const [stepX, , originX, , stepY, originY] = t;
+    const [height, width] = shape;
+    if (!stepX || !stepY) return null;
+
+    const col = Math.floor((lng - originX) / stepX);
+    const row = Math.floor((lat - originY) / stepY);
+    if (row < 0 || row >= height || col < 0 || col >= width) return null;
+
+    const sampleKey = bandCompositeSampleKey(state.year);
+    const rRaw = readSampleValue(sampleKey, row, col, state.rBand);
+    const gRaw = readSampleValue(sampleKey, row, col, state.gBand);
+    const bRaw = readSampleValue(sampleKey, row, col, state.bBand);
+
+    // Return null only when no tile is loaded (all three are null).
+    if (rRaw === null && gRaw === null && bRaw === null) return null;
+
+    const { bandLabels } = ctx;
+    const formatChannel = (raw: number | null, bandIdx: number): string => {
+      const label = bandLabels[bandIdx] ?? `band${bandIdx}`;
+      if (raw === null) return `${label}: —`;
+      if (raw === NODATA_INT8) return `${label}: no data`;
+      const deq = Math.sign(raw) * (raw / DEQUANT_DIVISOR) ** 2;
+      return `${label}: ${deq.toFixed(4)}`;
+    };
+
+    return {
+      label: "RGB",
+      value: null,
+      units: null,
+      valueLines: [
+        formatChannel(rRaw, state.rBand),
+        formatChannel(gRaw, state.gBand),
+        formatChannel(bRaw, state.bBand),
+      ],
+    };
   },
 };
 
