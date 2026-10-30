@@ -288,6 +288,12 @@ export const unstructuredGridProfile: ZarrProfile<
     // Store decoded values in context so sampleValue can read them without
     // depending on buildLayer side-effects.
     ctx.sliceMap.set(sliceKey(state), values);
+    log.debug(
+      `decode: raw[0]=${Number(raw[0])} fillValue=${varMeta.fillValue} ` +
+      (Number.isFinite(lo)
+        ? `range=[${lo.toFixed(4)}, ${hi.toFixed(4)}]`
+        : "range=none (all fill/NaN)"),
+    );
     const fallbackRange: [number, number] | null = Number.isFinite(lo)
       ? [lo, hi]
       : null;
