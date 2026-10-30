@@ -11,28 +11,33 @@ const ROW_COUNT = Object.keys(COLORMAP_INDEX).length;
 let spritePromise: Promise<ImageData> | null = null;
 const lutCache = new Map<string, Uint8Array>();
 
+// Load via fetch() + createImageBitmap() rather than <img> + canvas.
+// fetch() is unaffected by the COI service worker's CORP/COEP rewriting that
+// causes <img> loads to fail in Cross-Origin-Isolated deployments (GitHub Pages).
+// Reset spritePromise on rejection so callers can retry after a transient failure.
+async function loadSpriteOnce(): Promise<ImageData> {
+  const resp = await fetch(colormapsPngUrl);
+  if (!resp.ok) throw new Error(`failed to fetch colormaps sprite: ${resp.status}`);
+  const blob = await resp.blob();
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const cx = canvas.getContext("2d");
+  if (!cx) {
+    bitmap.close();
+    throw new Error("no 2d context for colormap sprite");
+  }
+  cx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return cx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
 function loadSprite(): Promise<ImageData> {
   if (spritePromise) return spritePromise;
-  spritePromise = new Promise<ImageData>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const cx = canvas.getContext("2d");
-      if (!cx) {
-        reject(new Error("no 2d context for colormap sprite"));
-        return;
-      }
-      cx.drawImage(img, 0, 0);
-      resolve(cx.getImageData(0, 0, canvas.width, canvas.height));
-    };
-    img.onerror = () => reject(new Error("failed to load colormaps sprite"));
-    // No crossOrigin attribute: the sprite is a same-origin bundled asset,
-    // so no CORS request is needed and the canvas will not be tainted.
-    // If this sprite is ever moved to a CDN, add crossOrigin = "anonymous"
-    // and ensure the CDN sends Access-Control-Allow-Origin.
-    img.src = colormapsPngUrl;
+  spritePromise = loadSpriteOnce().catch((err) => {
+    spritePromise = null; // allow retry on next call
+    throw err;
   });
   return spritePromise;
 }

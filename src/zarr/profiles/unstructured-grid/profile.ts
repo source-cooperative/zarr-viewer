@@ -189,6 +189,9 @@ export const unstructuredGridProfile: ZarrProfile<
     const latData = latChunk.data as ArrayLike<number>;
     const lonData = lonChunk.data as ArrayLike<number>;
     const nPoints = gridDimSize;
+    log.debug(
+      `coords[0]: lat=${Number(latData[0]).toFixed(4)} lon=${Number(lonData[0]).toFixed(4)}`,
+    );
     const positions = new Float32Array(nPoints * 2);
     for (let i = 0; i < nPoints; i++) {
       let lon = Number(lonData[i]);
@@ -272,17 +275,32 @@ export const unstructuredGridProfile: ZarrProfile<
     );
     const raw = chunk.data as ArrayLike<number>;
     const values = new Float32Array(raw.length);
+    let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < raw.length; i++) {
       const v = Number(raw[i]);
-      values[i] =
+      const decoded =
         varMeta.fillValue !== null && v === varMeta.fillValue
           ? Number.NaN
           : v * varMeta.scaleFactor + varMeta.addOffset;
+      values[i] = decoded;
+      if (Number.isFinite(decoded)) {
+        if (decoded < lo) lo = decoded;
+        if (decoded > hi) hi = decoded;
+      }
     }
     // Store decoded values in context so sampleValue can read them without
     // depending on buildLayer side-effects.
     ctx.sliceMap.set(sliceKey(state), values);
-    const slice: UnstructuredSlice = { __ungrid: true, values };
+    log.debug(
+      `decode: raw[0]=${Number(raw[0])} fillValue=${varMeta.fillValue} ` +
+      (Number.isFinite(lo)
+        ? `range=[${lo.toFixed(4)}, ${hi.toFixed(4)}]`
+        : "range=none (all fill/NaN)"),
+    );
+    const fallbackRange: [number, number] | null = Number.isFinite(lo)
+      ? [lo, hi]
+      : null;
+    const slice: UnstructuredSlice = { __ungrid: true, values, fallbackRange };
     return slice as unknown as zarr.Group<zarr.Readable>;
   },
 
@@ -301,7 +319,7 @@ export const unstructuredGridProfile: ZarrProfile<
       .map((k) => `${k}=${state.dimIndices[k]}`),
   ],
 
-  buildLayer({ ctx, state, chassisState, autoStats, node }) {
+  buildLayer({ ctx, state, chassisState, autoStats, basemapBeforeId, node }) {
     if (!node) return null;
     // Detect our sentinel type (resolveNode casts UnstructuredSlice → Group).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -316,13 +334,19 @@ export const unstructuredGridProfile: ZarrProfile<
     const lut = getColormapLut(colormap);
     const autoRange = autoStats?.global;
 
-    // Don't render until we have a real data range — avoids a flash of
-    // saturated colors before auto-stats arrive.
-    const hasRange = chassisState.rescale != null || autoRange != null;
-    if (!hasRange) return null;
-
-    const rMin = chassisState.rescale?.[0] ?? autoRange!.min;
-    const rMax = chassisState.rescale?.[1] ?? autoRange!.max;
+    // Resolve the display range: explicit rescale wins; then autoStats
+    // percentile range; then the inline min/max computed in resolveNode as a
+    // fallback so points appear immediately even before computeAutoStats
+    // returns. Only return null when there are literally no valid values.
+    const rMin =
+      chassisState.rescale?.[0] ??
+      autoRange?.min ??
+      slice.fallbackRange?.[0];
+    const rMax =
+      chassisState.rescale?.[1] ??
+      autoRange?.max ??
+      slice.fallbackRange?.[1];
+    if (rMin == null || rMax == null) return null;
     const range = Math.max(rMax - rMin, 1e-9);
     const maskBelow = chassisState.maskBelow;
     const maskAbove = chassisState.maskAbove;
@@ -369,6 +393,7 @@ export const unstructuredGridProfile: ZarrProfile<
 
     return new ScatterplotLayer({
       id: `unstructured-grid-${state.variable}`,
+      ...({ beforeId: basemapBeforeId } as Record<string, unknown>),
       // data.attributes is required for getPosition: the instancePositions
       // attribute uses fp64 high/low encoding that only the attribute manager
       // handles when going through data.attributes (not via prop binary spec).
