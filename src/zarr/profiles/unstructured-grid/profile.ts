@@ -189,6 +189,9 @@ export const unstructuredGridProfile: ZarrProfile<
     const latData = latChunk.data as ArrayLike<number>;
     const lonData = lonChunk.data as ArrayLike<number>;
     const nPoints = gridDimSize;
+    log.debug(
+      `coords[0]: lat=${Number(latData[0]).toFixed(4)} lon=${Number(lonData[0]).toFixed(4)}`,
+    );
     const positions = new Float32Array(nPoints * 2);
     for (let i = 0; i < nPoints; i++) {
       let lon = Number(lonData[i]);
