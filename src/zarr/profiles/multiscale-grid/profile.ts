@@ -469,7 +469,13 @@ export const multiscaleGridProfile: ZarrProfile<
 
   Controls: MultiscaleGridControls,
 
-  resolveNode: async (ctx) => ctx.group,
+  resolveNode: async (ctx, state) => {
+    const p = selectedPyramid(ctx, state);
+    const v = p.variables.find((x) => x.name === state.variable) ?? p.variables[0]!;
+    const finestAsset = v.metadata.multiscales.layout[0]?.asset;
+    if (!finestAsset) return ctx.group;
+    return zarr.open(ctx.group.resolve(finestAsset), { kind: "array" });
+  },
   resolveNodeDeps: (s) => [s.pyramid, s.variable],
   statsDeps: (s) => [s.pyramid, s.variable],
 
@@ -499,8 +505,10 @@ export const multiscaleGridProfile: ZarrProfile<
     const sampleKey = (z: number) => `${state.pyramid}:${state.variable}:z${z}`;
     return new ReportingZarrLayer<zarr.Readable, zarr.DataType, MultiBandTileData>({
       id: `multiscale-grid-${state.pyramid}-${state.variable}-${pinnedKey}`,
+      // ZarrLayer navigates asset paths relative to the group root, so pass the
+      // group even though `node` (the finest-level array) is used as a loading guard.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      node: node as any,
+      node: ctx.group as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       metadata: v.metadata as any,
       selection,
@@ -512,7 +520,7 @@ export const multiscaleGridProfile: ZarrProfile<
       minZoom: chassisState.minZoomOverride ?? p.minRenderZoom,
       extent: KEEP_MIN_ZOOM_EXTENT,
       maxRequests: 20,
-      maxCacheSize: 64,
+      maxCacheSize: 128,
       // beforeId is injected by @deck.gl/mapbox; attach via a wider cast.
       ...({ beforeId: basemapBeforeId } as Record<string, unknown>),
       updateTriggers: {
